@@ -422,14 +422,14 @@ function dimensionBandHeight(items, fontSize) {
   return items.length ? fontSize * 2.6 : 0;
 }
 
-function dimensionRowLayout(placed, structureTop, chartBottom, fontSize) {
+function dimensionRowLayout(placed, chartBottom, fontSize) {
   const baseline = chartBottom - fontSize * 1.1;
   const ys = placed.filter((item) => item.type === 0).flatMap(({ A, B }) => [A[1], B[1]]);
   return {
     baseline,
     shift: ys.length ? baseline - fontSize * 1.5 - Math.max(...ys) : 0,
-    // The grid line reaches from just above the mark up to the structure.
-    gridTop: structureTop,
+    // A short tick above the mark, reaching towards the structure but not to it.
+    gridTop: baseline - fontSize * 2.9,
     gridBottom: baseline - fontSize * 1.1,
   };
 }
@@ -660,7 +660,7 @@ function numberingDiagramSvg(plane, kind, options = {}) {
   const dimensionColor = /^#[0-9a-f]{6}$/i.test(rawDimensionColor) ? rawDimensionColor : "#c9cfcc";
   const dimensionLineWidth = Number(options.dimensionLineWidth || $("#dimensionLineWidth")?.value || 0.2);
   const placedDimensions = dimensionItems.map((item) => ({ ...item, A: pt2(item.a), B: pt2(item.b) }));
-  const dimensionRow = dimensionRowLayout(placedDimensions, y0, chartBottom, fontSize);
+  const dimensionRow = dimensionRowLayout(placedDimensions, chartBottom, fontSize);
   const dimensionLines = [], dimensionLabels = [];
   for (const item of placedDimensions) {
     if (item.type === 0) {
@@ -813,7 +813,7 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
     return true;
   };
   const placedDimensions = dimensionItems.map((item) => ({ ...item, A: pt2(item.a), B: pt2(item.b) }));
-  const dimensionRow = dimensionRowLayout(placedDimensions, y0, chartBottom, labelFontSize);
+  const dimensionRow = dimensionRowLayout(placedDimensions, chartBottom, labelFontSize);
   const dimensionLines = [], dimensionLabels = [];
   for (const item of placedDimensions) {
     if (item.type === 0) {
