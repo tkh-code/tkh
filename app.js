@@ -163,6 +163,25 @@ function parseModel(text) {
   return { nodes, elements, members, memberByElement, constraints, releases, planes, dimensions, sectionCount, sectionNames: [...sections.keys()] };
 }
 
+// Leaves a little air between the fitted drawing and the chart frame.
+const DIAGRAM_MARGIN = 0.92;
+
+// The drawing range is what is actually on the plane. Pinning the origin into
+// the range squeezed off-origin frames into a corner of the sheet.
+function planeExtent(values) {
+  if (!values.length) return [0, 1];
+  return [Math.min(...values), Math.max(...values)];
+}
+
+// A plane can hold a single straight line, so a zero span is ignored here
+// rather than driving the scale to infinity.
+function fitToChart(spanU, spanZ, drawW, drawH) {
+  const fitU = spanU > 1e-9 ? drawW / spanU : Infinity;
+  const fitZ = spanZ > 1e-9 ? drawH / spanZ : Infinity;
+  const fit = Math.min(fitU, fitZ);
+  return (Number.isFinite(fit) ? fit : 1) * DIAGRAM_MARGIN;
+}
+
 const pointNames = new Set(["I", "J", "CNT", "1/4", "3/4"]);
 const floatToken = (value) => /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[Ee][-+]?\d+)?$/.test(value || "");
 
@@ -576,10 +595,11 @@ function numberingDiagramSvg(plane, kind, options = {}) {
   const axis = plane.type === 3 ? 0 : 1;
   const allU = [...segments.flatMap(({ a, b }) => [a[axis], b[axis]]), ...dimensionItems.flatMap(({ a, b }) => [a[axis], b[axis]])];
   const allZ = [...segments.flatMap(({ a, b }) => [a[2], b[2]]), ...dimensionItems.flatMap(({ a, b }) => [a[2], b[2]])];
-  const minU = Math.min(...allU, 0), maxU = Math.max(...allU, 1), minZ = Math.min(...allZ, 0), maxZ = Math.max(...allZ, 1);
+  const [minU, maxU] = planeExtent(allU);
+  const [minZ, maxZ] = planeExtent(allZ);
   const chartLeft = 190, chartRight = 1040, chartTop = 160, chartBottom = 413;
-  const spanU = maxU - minU || 1, spanZ = maxZ - minZ || 1;
-  const fit = Math.min((chartRight - chartLeft) / spanU, (chartBottom - chartTop) / spanZ) * Number(options.scale || $("#scale")?.value || 1);
+  const spanU = maxU - minU, spanZ = maxZ - minZ;
+  const fit = fitToChart(spanU, spanZ, chartRight - chartLeft, chartBottom - chartTop) * Number(options.scale || $("#scale")?.value || 1);
   const usedW = spanU * fit, usedH = spanZ * fit;
   const x0 = chartLeft + (chartRight - chartLeft - usedW) / 2, y0 = chartTop + (chartBottom - chartTop - usedH) / 2;
   const pt2 = (point) => [x0 + (point[axis] - minU) * fit, y0 + (maxZ - point[2]) * fit];
@@ -698,7 +718,8 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
     ...planeMembers.flatMap(({ a, b }) => [a[2], b[2]]),
     ...dimensionItems.flatMap(({ a, b }) => [a[2], b[2]]),
   ];
-  const minU = Math.min(...allU, 0), maxU = Math.max(...allU, 1), minZ = Math.min(...allZ, 0), maxZ = Math.max(...allZ, 1);
+  const [minU, maxU] = planeExtent(allU);
+  const [minZ, maxZ] = planeExtent(allZ);
   const width = 1200, height = 590, frame = $("#frame")?.value !== "off";
   const legendPosition = options.legendPosition || $("#legendPosition")?.value || "right";
   const count = Number(options.contourColors || $("#contourColors")?.value || 12);
@@ -735,8 +756,8 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
   const chartRight = legendPosition === "left" ? 1124 : 986;
   const chartTop = 160, chartBottom = 413;
   const drawW = chartRight - chartLeft, drawH = chartBottom - chartTop;
-  const spanU = maxU - minU || 1, spanZ = maxZ - minZ || 1;
-  const fit = Math.min(drawW / spanU, drawH / spanZ);
+  const spanU = maxU - minU, spanZ = maxZ - minZ;
+  const fit = fitToChart(spanU, spanZ, drawW, drawH);
   const usedW = spanU * fit, usedH = spanZ * fit;
   const x0 = chartLeft + (drawW - usedW) / 2, y0 = chartTop + (drawH - usedH) / 2;
   const scale = Number(options.scale || $("#scale")?.value || 1);
