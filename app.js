@@ -402,6 +402,19 @@ function dimensionPoint(view, point) {
   return [x3 + view.origin[0], y3 + view.origin[1], z2 + view.origin[2]];
 }
 
+// Dimension views carry the grid marks, and their names are whatever the user
+// typed in MIDAS, so pick the view that actually runs along the drawing axis.
+function dimensionViewForAxis(model, axis) {
+  let best = null, bestSpread = 0;
+  for (const view of model.dimensions?.values() || []) {
+    const values = view.items.flatMap((item) => [dimensionPoint(view, item.start)[axis], dimensionPoint(view, item.end)[axis]]);
+    if (values.length < 2) continue;
+    const spread = Math.max(...values) - Math.min(...values);
+    if (spread > bestSpread) { bestSpread = spread; best = view; }
+  }
+  return best;
+}
+
 function makeContourPalette(count) {
   const stops = ["#438cf5", "#2cbdb0", "#55c94f", "#91d32f", "#bfdb21", "#e8d719", "#ffd21a", "#ffc116", "#ffad12", "#ff9116", "#ff7428", "#f14f39"];
   const parse = (hex) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
@@ -588,7 +601,7 @@ function numberingDiagramSvg(plane, kind, options = {}) {
   const segments = elementsOnPlane(model, plane), groups = numberingGroups(model, plane, kind);
   const width = 1200, height = 590, frame = $("#frame")?.value !== "off";
   const dimensionEnabled = options.showDimensions ?? $("#showDimensions")?.checked ?? true;
-  const dimensionView = model.dimensions?.get(plane.type === 3 ? "軸1" : "軸2");
+  const dimensionView = dimensionViewForAxis(model, plane.type === 3 ? 0 : 1);
   const dimensionItems = dimensionEnabled && dimensionView ? dimensionView.items.map((item) => ({
     ...item, a: dimensionPoint(dimensionView, item.start), b: dimensionPoint(dimensionView, item.end),
   })) : [];
@@ -705,7 +718,7 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
   const minimum = Math.min(0, ...selectedValues), maximum = Math.max(0, ...selectedValues);
   const peak = Math.max(Math.abs(minimum), Math.abs(maximum)) || 1;
   const dimensionEnabled = options.showDimensions ?? $("#showDimensions")?.checked ?? true;
-  const dimensionView = model.dimensions?.get(plane.type === 3 ? "軸1" : "軸2");
+  const dimensionView = dimensionViewForAxis(model, plane.type === 3 ? 0 : 1);
   const dimensionItems = dimensionEnabled && dimensionView ? dimensionView.items.map((item) => ({
     ...item, a: dimensionPoint(dimensionView, item.start), b: dimensionPoint(dimensionView, item.end),
   })) : [];
