@@ -415,6 +415,19 @@ function dimensionViewForAxis(model, axis) {
   return best;
 }
 
+// The grid marks read as a row at the foot of the frame on the GEN NX sheets,
+// so reserve a band for them instead of letting them float at whatever height
+// the dimension view happens to sit at.
+function dimensionBandHeight(items, fontSize) {
+  return items.length ? fontSize * 2.6 : 0;
+}
+
+function dimensionRowLayout(placed, chartBottom, fontSize) {
+  const baseline = chartBottom - fontSize * 0.5;
+  const ys = placed.filter((item) => item.type === 0).flatMap(({ A, B }) => [A[1], B[1]]);
+  return { baseline, shift: ys.length ? baseline - fontSize * 1.5 - Math.max(...ys) : 0 };
+}
+
 function makeContourPalette(count) {
   const stops = ["#438cf5", "#2cbdb0", "#55c94f", "#91d32f", "#bfdb21", "#e8d719", "#ffd21a", "#ffc116", "#ffad12", "#ff9116", "#ff7428", "#f14f39"];
   const parse = (hex) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
@@ -607,17 +620,20 @@ function numberingDiagramSvg(plane, kind, options = {}) {
   })) : [];
   const axis = plane.type === 3 ? 0 : 1;
   const allU = [...segments.flatMap(({ a, b }) => [a[axis], b[axis]]), ...dimensionItems.flatMap(({ a, b }) => [a[axis], b[axis]])];
-  const allZ = [...segments.flatMap(({ a, b }) => [a[2], b[2]]), ...dimensionItems.flatMap(({ a, b }) => [a[2], b[2]])];
+  // Only the structure sets the vertical scale; the marks get their own band.
+  const allZ = segments.flatMap(({ a, b }) => [a[2], b[2]]);
   const [minU, maxU] = planeExtent(allU);
   const [minZ, maxZ] = planeExtent(allZ);
   const chartLeft = 190, chartRight = 1040, chartTop = 160, chartBottom = 413;
-  const spanU = maxU - minU, spanZ = maxZ - minZ;
-  const fit = fitToChart(spanU, spanZ, chartRight - chartLeft, chartBottom - chartTop) * Number(options.scale || $("#scale")?.value || 1);
-  const usedW = spanU * fit, usedH = spanZ * fit;
-  const x0 = chartLeft + (chartRight - chartLeft - usedW) / 2, y0 = chartTop + (chartBottom - chartTop - usedH) / 2;
-  const pt2 = (point) => [x0 + (point[axis] - minU) * fit, y0 + (maxZ - point[2]) * fit];
   const ptToSvg = (pt) => Number(pt) * width * 25.4 / (277 * 72);
   const fontSize = ptToSvg(options.labelFontSize || $("#labelFontSize")?.value || 8);
+  const dimensionBand = dimensionBandHeight(dimensionItems, fontSize);
+  const spanU = maxU - minU, spanZ = maxZ - minZ;
+  const drawW = chartRight - chartLeft, drawH = chartBottom - chartTop - dimensionBand;
+  const fit = fitToChart(spanU, spanZ, drawW, drawH) * Number(options.scale || $("#scale")?.value || 1);
+  const usedW = spanU * fit, usedH = spanZ * fit;
+  const x0 = chartLeft + (drawW - usedW) / 2, y0 = chartTop + (drawH - usedH) / 2;
+  const pt2 = (point) => [x0 + (point[axis] - minU) * fit, y0 + (maxZ - point[2]) * fit];
   const fontFamilies = {
     arialNarrow: "'Arial Narrow',Arial,'Noto Sans JP',sans-serif", arial: "Arial,'Noto Sans JP',sans-serif",
     msGothic: "'MS Gothic','Noto Sans JP',sans-serif", msMincho: "'Yu Mincho','游明朝','MS Mincho',serif",
@@ -633,15 +649,14 @@ function numberingDiagramSvg(plane, kind, options = {}) {
   const rawDimensionColor = options.dimensionColor || $("#dimensionColor")?.value || "#c9cfcc";
   const dimensionColor = /^#[0-9a-f]{6}$/i.test(rawDimensionColor) ? rawDimensionColor : "#c9cfcc";
   const dimensionLineWidth = Number(options.dimensionLineWidth || $("#dimensionLineWidth")?.value || 0.2);
+  const placedDimensions = dimensionItems.map((item) => ({ ...item, A: pt2(item.a), B: pt2(item.b) }));
+  const dimensionRow = dimensionRowLayout(placedDimensions, chartBottom, fontSize);
   const dimensionLines = [], dimensionLabels = [];
-  for (const item of dimensionItems) {
-    const a = pt2(item.a), b = pt2(item.b);
-    if (item.type === 0) dimensionLines.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" class="dimension-line"/>`);
-    else if (item.text.trim()) {
-      let angle = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
-      if (angle > 90 || angle < -90) angle += 180;
-      const x = (a[0] + b[0]) / 2, y = (a[1] + b[1]) / 2;
-      dimensionLabels.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})">${escapeHtml(item.text)}</text>`);
+  for (const item of placedDimensions) {
+    if (item.type === 0) {
+      dimensionLines.push(`<line x1="${item.A[0].toFixed(1)}" y1="${(item.A[1] + dimensionRow.shift).toFixed(1)}" x2="${item.B[0].toFixed(1)}" y2="${(item.B[1] + dimensionRow.shift).toFixed(1)}" class="dimension-line"/>`);
+    } else if (item.text.trim()) {
+      dimensionLabels.push(`<text x="${((item.A[0] + item.B[0]) / 2).toFixed(1)}" y="${dimensionRow.baseline.toFixed(1)}" text-anchor="middle">${escapeHtml(item.text)}</text>`);
     }
   }
   const memberLines = segments.map(({ element, a, b }) => {
@@ -727,10 +742,8 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
     ...planeMembers.flatMap(({ a, b }) => [a[axis], b[axis]]),
     ...dimensionItems.flatMap(({ a, b }) => [a[axis], b[axis]]),
   ];
-  const allZ = [
-    ...planeMembers.flatMap(({ a, b }) => [a[2], b[2]]),
-    ...dimensionItems.flatMap(({ a, b }) => [a[2], b[2]]),
-  ];
+  // Only the structure sets the vertical scale; the marks get their own band.
+  const allZ = planeMembers.flatMap(({ a, b }) => [a[2], b[2]]);
   const [minU, maxU] = planeExtent(allU);
   const [minZ, maxZ] = planeExtent(allZ);
   const width = 1200, height = 590, frame = $("#frame")?.value !== "off";
@@ -768,7 +781,8 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
   const chartLeft = legendPosition === "left" ? 224 : 80;
   const chartRight = legendPosition === "left" ? 1124 : 986;
   const chartTop = 160, chartBottom = 413;
-  const drawW = chartRight - chartLeft, drawH = chartBottom - chartTop;
+  const dimensionBand = dimensionBandHeight(dimensionItems, labelFontSize);
+  const drawW = chartRight - chartLeft, drawH = chartBottom - chartTop - dimensionBand;
   const spanU = maxU - minU, spanZ = maxZ - minZ;
   const fit = fitToChart(spanU, spanZ, drawW, drawH);
   const usedW = spanU * fit, usedH = spanZ * fit;
@@ -786,15 +800,16 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
     target.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" class="${className}" font-size="${labelFontSize.toFixed(2)}"${rotate}>${escapeHtml(text)}</text>`);
     return true;
   };
+  const placedDimensions = dimensionItems.map((item) => ({ ...item, A: pt2(item.a), B: pt2(item.b) }));
+  const dimensionRow = dimensionRowLayout(placedDimensions, chartBottom, labelFontSize);
   const dimensionLines = [], dimensionLabels = [];
-  for (const item of dimensionItems) {
-    const A = pt2(item.a), B = pt2(item.b);
-    if (item.type === 0) { dimensionLines.push(`<line x1="${A[0].toFixed(1)}" y1="${A[1].toFixed(1)}" x2="${B[0].toFixed(1)}" y2="${B[1].toFixed(1)}" class="dimension-line"/>`); continue; }
+  for (const item of placedDimensions) {
+    if (item.type === 0) {
+      dimensionLines.push(`<line x1="${item.A[0].toFixed(1)}" y1="${(item.A[1] + dimensionRow.shift).toFixed(1)}" x2="${item.B[0].toFixed(1)}" y2="${(item.B[1] + dimensionRow.shift).toFixed(1)}" class="dimension-line"/>`);
+      continue;
+    }
     if (!item.text.trim()) continue;
-    let angle = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI;
-    if (angle > 90 || angle < -90) angle += 180;
-    const x = (A[0] + B[0]) / 2, y = (A[1] + B[1]) / 2;
-    registerText(dimensionLabels, item.text, x, y, angle, "dimension-text", true);
+    registerText(dimensionLabels, item.text, (item.A[0] + item.B[0]) / 2, dimensionRow.baseline, 0, "dimension-text", true);
   }
   const contourIndex = (value) => {
     if (count <= 1 || maximum === minimum) return Math.floor(count / 2);
