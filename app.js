@@ -422,10 +422,20 @@ function dimensionBandHeight(items, fontSize) {
   return items.length ? fontSize * 2.6 : 0;
 }
 
-function dimensionRowLayout(placed, chartBottom, fontSize) {
-  const baseline = chartBottom - fontSize * 0.5;
+function dimensionRowLayout(placed, structureTop, chartBottom, fontSize) {
+  const baseline = chartBottom - fontSize * 1.1;
   const ys = placed.filter((item) => item.type === 0).flatMap(({ A, B }) => [A[1], B[1]]);
-  return { baseline, shift: ys.length ? baseline - fontSize * 1.5 - Math.max(...ys) : 0 };
+  return {
+    baseline,
+    shift: ys.length ? baseline - fontSize * 1.5 - Math.max(...ys) : 0,
+    // The grid line reaches from just above the mark up to the structure.
+    gridTop: structureTop,
+    gridBottom: baseline - fontSize * 1.1,
+  };
+}
+
+function gridLineSvg(x, row) {
+  return `<line x1="${x.toFixed(1)}" y1="${row.gridTop.toFixed(1)}" x2="${x.toFixed(1)}" y2="${row.gridBottom.toFixed(1)}" class="dimension-line"/>`;
 }
 
 function makeContourPalette(count) {
@@ -650,13 +660,15 @@ function numberingDiagramSvg(plane, kind, options = {}) {
   const dimensionColor = /^#[0-9a-f]{6}$/i.test(rawDimensionColor) ? rawDimensionColor : "#c9cfcc";
   const dimensionLineWidth = Number(options.dimensionLineWidth || $("#dimensionLineWidth")?.value || 0.2);
   const placedDimensions = dimensionItems.map((item) => ({ ...item, A: pt2(item.a), B: pt2(item.b) }));
-  const dimensionRow = dimensionRowLayout(placedDimensions, chartBottom, fontSize);
+  const dimensionRow = dimensionRowLayout(placedDimensions, y0, chartBottom, fontSize);
   const dimensionLines = [], dimensionLabels = [];
   for (const item of placedDimensions) {
     if (item.type === 0) {
       dimensionLines.push(`<line x1="${item.A[0].toFixed(1)}" y1="${(item.A[1] + dimensionRow.shift).toFixed(1)}" x2="${item.B[0].toFixed(1)}" y2="${(item.B[1] + dimensionRow.shift).toFixed(1)}" class="dimension-line"/>`);
     } else if (item.text.trim()) {
-      dimensionLabels.push(`<text x="${((item.A[0] + item.B[0]) / 2).toFixed(1)}" y="${dimensionRow.baseline.toFixed(1)}" text-anchor="middle">${escapeHtml(item.text)}</text>`);
+      const x = (item.A[0] + item.B[0]) / 2;
+      dimensionLines.push(gridLineSvg(x, dimensionRow));
+      dimensionLabels.push(`<text x="${x.toFixed(1)}" y="${dimensionRow.baseline.toFixed(1)}" text-anchor="middle">${escapeHtml(item.text)}</text>`);
     }
   }
   const memberLines = segments.map(({ element, a, b }) => {
@@ -801,7 +813,7 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
     return true;
   };
   const placedDimensions = dimensionItems.map((item) => ({ ...item, A: pt2(item.a), B: pt2(item.b) }));
-  const dimensionRow = dimensionRowLayout(placedDimensions, chartBottom, labelFontSize);
+  const dimensionRow = dimensionRowLayout(placedDimensions, y0, chartBottom, labelFontSize);
   const dimensionLines = [], dimensionLabels = [];
   for (const item of placedDimensions) {
     if (item.type === 0) {
@@ -809,7 +821,9 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
       continue;
     }
     if (!item.text.trim()) continue;
-    registerText(dimensionLabels, item.text, (item.A[0] + item.B[0]) / 2, dimensionRow.baseline, 0, "dimension-text", true);
+    const x = (item.A[0] + item.B[0]) / 2;
+    dimensionLines.push(gridLineSvg(x, dimensionRow));
+    registerText(dimensionLabels, item.text, x, dimensionRow.baseline, 0, "dimension-text", true);
   }
   const contourIndex = (value) => {
     if (count <= 1 || maximum === minimum) return Math.floor(count / 2);
