@@ -656,9 +656,10 @@ function numberingDiagramSvg(plane, kind, options = {}) {
   const labelOffset = Number(options.labelOffsetMm ?? $("#labelOffsetMm")?.value ?? 0.6) * width / 277;
   const labelOrientation = options.labelOrientation || $("#labelOrientation")?.value || "auto";
   const hideOverlaps = options.hideOverlaps ?? $("#hideOverlaps")?.checked ?? false;
-  const rawDimensionColor = options.dimensionColor || $("#dimensionColor")?.value || "#c9cfcc";
-  const dimensionColor = /^#[0-9a-f]{6}$/i.test(rawDimensionColor) ? rawDimensionColor : "#c9cfcc";
-  const dimensionLineWidth = Number(options.dimensionLineWidth || $("#dimensionLineWidth")?.value || 0.2);
+  const rawDimensionColor = options.dimensionColor || $("#dimensionColor")?.value || "#6f7a75";
+  const dimensionColor = /^#[0-9a-f]{6}$/i.test(rawDimensionColor) ? rawDimensionColor : "#6f7a75";
+  // The setting is in mm, and the sheet is 277 mm across the 1200 unit viewBox.
+  const dimensionLineWidth = Number(options.dimensionLineWidth || $("#dimensionLineWidth")?.value || 0.2) * width / 277;
   const placedDimensions = dimensionItems.map((item) => ({ ...item, A: pt2(item.a), B: pt2(item.b) }));
   const dimensionRow = dimensionRowLayout(placedDimensions, chartBottom, fontSize);
   const dimensionLines = [], dimensionLabels = [];
@@ -707,7 +708,7 @@ function numberingDiagramSvg(plane, kind, options = {}) {
   const lineName = drawingTitle(plane, "", kind).line;
   app.lastDiagnostics = { plane: plane.name, diagramType: kind, total: groups.length, resultCount: numberLabels.length, elements: segments.length };
   return `<svg class="diagram-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${escapeHtml(plane.name)} ${diagramName}図">
-    <style>.dimension-line{stroke:${dimensionColor};stroke-width:${dimensionLineWidth};fill:none}.dimension-label,.number-label{font-family:${fontFamily};font-size:${fontSize.toFixed(2)}px;font-weight:${fontWeight};fill:${color}}.sheet-title{font-family:${fontFamily};font-size:${ptToSvg(8).toFixed(2)}px;fill:${color}}</style>
+    <style>.dimension-line{stroke:${dimensionColor};stroke-width:${dimensionLineWidth.toFixed(2)};fill:none}.dimension-label,.number-label{font-family:${fontFamily};font-size:${fontSize.toFixed(2)}px;font-weight:${fontWeight};fill:${color}}.sheet-title{font-family:${fontFamily};font-size:${ptToSvg(8).toFixed(2)}px;fill:${color}}</style>
     <rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/>
     <rect x="64" y="58" width="1072" height="473" fill="#fff" ${frame ? 'stroke="#3e4642" stroke-width=".8"' : ""}/>
     <g>${dimensionLines.join("")}</g><g>${memberLines.join("")}</g>
@@ -786,9 +787,10 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
   const labelOrientation = options.labelOrientation || $("#labelOrientation")?.value || "auto";
   const labelOffset = Number(options.labelOffsetMm ?? $("#labelOffsetMm")?.value ?? 0.6) * width / 277;
   const hideOverlaps = options.hideOverlaps ?? $("#hideOverlaps")?.checked ?? false;
-  const dimensionLineWidth = Number(options.dimensionLineWidth || $("#dimensionLineWidth")?.value || 0.2);
-  const rawDimensionColor = options.dimensionColor || $("#dimensionColor")?.value || "#c9cfcc";
-  const dimensionColor = /^#[0-9a-f]{6}$/i.test(rawDimensionColor) ? rawDimensionColor : "#c9cfcc";
+  // The setting is in mm, and the sheet is 277 mm across the 1200 unit viewBox.
+  const dimensionLineWidth = Number(options.dimensionLineWidth || $("#dimensionLineWidth")?.value || 0.2) * width / 277;
+  const rawDimensionColor = options.dimensionColor || $("#dimensionColor")?.value || "#6f7a75";
+  const dimensionColor = /^#[0-9a-f]{6}$/i.test(rawDimensionColor) ? rawDimensionColor : "#6f7a75";
   const diagramFill = options.diagramFill || $("#diagramFill")?.value || "solid";
   const chartLeft = legendPosition === "left" ? 224 : 80;
   const chartRight = legendPosition === "left" ? 1124 : 986;
@@ -933,7 +935,7 @@ function actualDiagramSvg(plane, loadCase, comp, options = {}) {
   </g>`;
   return `<svg class="diagram-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${escapeHtml(plane.name)} ${escapeHtml(loadCase)} ${escapeHtml(comp)}応力図">
     <style>
-      .dimension-line{stroke:${dimensionColor};stroke-width:${dimensionLineWidth};fill:none}
+      .dimension-line{stroke:${dimensionColor};stroke-width:${dimensionLineWidth.toFixed(2)};fill:none}
       .dimension-text,.value-label{font-family:${fontFamily};font-size:${labelFontSize.toFixed(2)}px;font-weight:${fontWeight};fill:${valueColor}}
       .drawing-title{font-family:${fontFamily};font-size:${titleFontSize.toFixed(2)}px;font-weight:${fontWeight};fill:${valueColor}}
       .legend-brand{font:${(legendFontSize * 1.2).toFixed(2)}px Arial,sans-serif;fill:#fff}
