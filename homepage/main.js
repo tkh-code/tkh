@@ -29,175 +29,245 @@
 
     // 単位：kN, m
     const E = 2.05e8;
-    const COL = { A: 2.8e-2, I: 4.0e-4 };
-    const BEAM = { A: 1.2e-2, I: 5.0e-4 };
-    const XS = [0, 6.0, 13.2, 19.2];          // 通り芯 X1〜X4
-    const CANT = 2.4;                          // R階の片持ち
-    const LV = [0, 4.2, 7.8];                  // 1FL, 2FL, RFL
-    const LV_NAME = ["1FL", "2FL", "RFL"];
-    const P = 100;                             // 鉛直集中荷重
-    const QH = [0, 80, 120];                   // 各階の水平力（地震）
+    const P = 100;   // 鉛直集中荷重
 
-    const nodes = [];
-    const key = new Map();
-    const node = (x, y) => {
-      const k = x.toFixed(3) + "," + y.toFixed(3);
-      if (!key.has(k)) { key.set(k, nodes.length); nodes.push({ x, y, fixed: y === 0 }); }
-      return key.get(k);
+    /* ── 構造モデル ──
+     * members: [点列, 分割長さ, 断面, 載荷できるか]
+     * supports: { "x,y": "fix" | "pin" }
+     * lat: 地震力 [x, y, Q]
+     */
+    const SEC = {
+      trunk: { A: 6.0e-2, I: 1.6e-3 }, branch: { A: 1.2e-2, I: 1.5e-4 }, roof: { A: 1.2e-2, I: 3.0e-4 },
+      arch: { A: 2.4e-2, I: 6.0e-4 }, deck: { A: 1.2e-2, I: 2.5e-4 }, strut: { A: 4.0e-3, I: 2.0e-5 },
+      core: { A: 8.0e-2, I: 3.0e-3 }, chord: { A: 2.0e-2, I: 8.0e-4 }, post: { A: 1.6e-2, I: 6.0e-4 },
+      col: { A: 2.8e-2, I: 4.0e-4 }, beam: { A: 1.2e-2, I: 5.0e-4 },
     };
-    const els = [];
-    const member = (x1, y1, x2, y2, n, sec, kind, label) => {
-      let prev = node(x1, y1);
-      for (let i = 1; i <= n; i++) {
-        const cur = node(x1 + (x2 - x1) * i / n, y1 + (y2 - y1) * i / n);
-        els.push({ i: prev, j: cur, ...sec, kind, label });
-        prev = cur;
-      }
+    const line = (x1, y1, x2, y2) => [[x1, y1], [x2, y2]];
+    const PRESETS = {
+      tree: {
+        name: "樹状柱の大屋根",
+        build() {
+          const m = [];
+          const keys = [0, 2, 6, 10, 14, 18, 22, 24];
+          for (let i = 0; i < keys.length - 1; i++) m.push([line(keys[i], 7, keys[i + 1], 7), 0.5, SEC.roof, true]);
+          [6, 18].forEach((x) => {
+            m.push([line(x, 0, x, 3.2), 0.8, SEC.trunk]);
+            [-4, 0, 4].forEach((d) => m.push([line(x, 3.2, x + d, 7), 0.8, SEC.branch]));
+          });
+          return m;
+        },
+        supports: { "6,0": "fix", "18,0": "fix" },
+        axes: [[6, "X1"], [18, "X2"]], levels: [[0, "GL"], [7, "RFL"]], dims: [0, 6, 18, 24],
+        lat: [[0, 7, 30], [12, 7, 30], [24, 7, 30]],
+      },
+      arch: {
+        name: "上路式アーチ",
+        build() {
+          const m = [], pts = [];
+          for (let x = 0; x <= 32; x += 2) pts.push([x, 7 * (1 - ((x - 16) / 16) ** 2)]);
+          for (let i = 0; i < pts.length - 1; i++) m.push([[pts[i], pts[i + 1]], 1, SEC.arch]);
+          for (let x = 0; x < 32; x += 2) m.push([line(x, 8.5, x + 2, 8.5), 0.5, SEC.deck, true]);
+          pts.forEach(([x, y]) => m.push([line(x, y, x, 8.5), 9, SEC.strut]));
+          return m;
+        },
+        supports: { "0,0": "pin", "32,0": "pin" },
+        axes: [[0, "A1"], [16, "C"], [32, "A2"]], levels: [[0, "GL"], [8.5, "路面"]], dims: [0, 16, 32],
+        lat: [[0, 8.5, 40], [32, 8.5, 40]],
+      },
+      box: {
+        name: "片持ちフィーレンデール",
+        build() {
+          const m = [];
+          [0, 4].forEach((x) => [[0, 5], [5, 8.6]].forEach(([a, b]) => m.push([line(x, a, x, b), 1, SEC.core])));
+          for (let x = 0; x < 18; x += 2) {
+            m.push([line(x, 8.6, x + 2, 8.6), 0.5, SEC.chord, true]);
+            m.push([line(x, 5, x + 2, 5), 0.5, SEC.chord, true]);
+          }
+          for (let x = 2; x <= 18; x += 2) if (x !== 4) m.push([line(x, 5, x, 8.6), 0.9, SEC.post]);
+          return m;
+        },
+        supports: { "0,0": "fix", "4,0": "fix" },
+        axes: [[0, "X1"], [4, "X2"]], levels: [[0, "GL"], [5, "2FL"], [8.6, "RFL"]], dims: [0, 4, 18],
+        lat: [[0, 5, 60], [0, 8.6, 60]],
+      },
+      rahmen: {
+        name: "ラーメン",
+        build() {
+          const m = [], XS = [0, 6, 13.2, 19.2], LV = [0, 4.2, 7.8];
+          for (let s = 0; s < 2; s++) XS.forEach((x) => m.push([line(x, LV[s], x, LV[s + 1]), 1.05, SEC.col]));
+          for (let f = 1; f < 3; f++) for (let b = 0; b < 3; b++) m.push([line(XS[b], LV[f], XS[b + 1], LV[f]), 0.75, SEC.beam, true]);
+          m.push([line(19.2, 7.8, 21.6, 7.8), 0.8, SEC.beam, true]);
+          return m;
+        },
+        supports: { "0,0": "fix", "6,0": "fix", "13.2,0": "fix", "19.2,0": "fix" },
+        axes: [[0, "X1"], [6, "X2"], [13.2, "X3"], [19.2, "X4"]], levels: [[0, "1FL"], [4.2, "2FL"], [7.8, "RFL"]], dims: [0, 6, 13.2, 19.2, 21.6],
+        lat: [[0, 4.2, 80], [0, 7.8, 120]],
+      },
     };
-    for (let s = 0; s < LV.length - 1; s++)
-      XS.forEach((x) => member(x, LV[s], x, LV[s + 1], 4, COL, "col"));
-    for (let f = 1; f < LV.length; f++)
-      for (let b = 0; b < XS.length - 1; b++)
-        member(XS[b], LV[f], XS[b + 1], LV[f], 8, BEAM, "beam", { f, b });
-    member(XS[3], LV[2], XS[3] + CANT, LV[2], 3, BEAM, "beam", { f: 2, b: 3 });
 
-    els.forEach((e) => {
-      const a = nodes[e.i], b = nodes[e.j];
-      e.L = Math.hypot(b.x - a.x, b.y - a.y);
-      e.c = (b.x - a.x) / e.L; e.s = (b.y - a.y) / e.L;
-    });
+    /* ── モデルを組み立てて、荷重ケースを解いておく ── */
+    const kk = (x, y) => (+x.toFixed(3)) + "," + (+y.toFixed(3));
+    const build = (pre) => {
+      const nodes = [], key = new Map(), els = [];
+      const node = (x, y) => {
+        const k = kk(x, y);
+        if (!key.has(k)) { key.set(k, nodes.length); nodes.push({ x, y, sup: pre.supports[k] || null }); }
+        return key.get(k);
+      };
+      pre.build().forEach(([pts, step, sec, load]) => {
+        for (let p = 0; p < pts.length - 1; p++) {
+          const [x1, y1] = pts[p], [x2, y2] = pts[p + 1];
+          const nseg = Math.max(1, Math.round(Math.hypot(x2 - x1, y2 - y1) / step));
+          let prev = node(x1, y1);
+          for (let i = 1; i <= nseg; i++) {
+            const cur = node(x1 + (x2 - x1) * i / nseg, y1 + (y2 - y1) * i / nseg);
+            els.push({ i: prev, j: cur, ...sec, load: !!load });
+            prev = cur;
+          }
+        }
+      });
+      els.forEach((e) => {
+        const a = nodes[e.i], b = nodes[e.j];
+        e.L = Math.hypot(b.x - a.x, b.y - a.y); e.c = (b.x - a.x) / e.L; e.s = (b.y - a.y) / e.L;
+      });
+      const dof = []; let n = 0;
+      nodes.forEach((nd, k) => {
+        const fx = nd.sup === "fix" || nd.sup === "pin";
+        dof[k] = [fx ? -1 : n++, fx ? -1 : n++, nd.sup === "fix" ? -1 : n++];
+      });
+      els.forEach((e) => {
+        const { L } = e, EA = E * e.A / L, EI = E * e.I;
+        const a = 12 * EI / L ** 3, b = 6 * EI / L ** 2, c = 4 * EI / L, d = 2 * EI / L;
+        e.k = [[EA, 0, 0, -EA, 0, 0], [0, a, b, 0, -a, b], [0, b, c, 0, -b, d], [-EA, 0, 0, EA, 0, 0], [0, -a, -b, 0, a, -b], [0, b, d, 0, -b, c]];
+        e.map = [...dof[e.i], ...dof[e.j]];
+      });
 
-    // 自由度番号
-    const dof = [];
-    let n = 0;
-    nodes.forEach((nd, k) => { dof[k] = nd.fixed ? [-1, -1, -1] : [n++, n++, n++]; });
-
-    const localK = (e) => {
-      const { L } = e, EA = E * e.A / L, EI = E * e.I;
-      const a = 12 * EI / L ** 3, b = 6 * EI / L ** 2, c = 4 * EI / L, d = 2 * EI / L;
-      return [
-        [EA, 0, 0, -EA, 0, 0],
-        [0, a, b, 0, -a, b],
-        [0, b, c, 0, -b, d],
-        [-EA, 0, 0, EA, 0, 0],
-        [0, -a, -b, 0, a, -b],
-        [0, b, d, 0, -b, c],
-      ];
-    };
-    const toLocal = (e, g) => {   // T·g（6成分）
-      const { c, s } = e;
-      return [c * g[0] + s * g[1], -s * g[0] + c * g[1], g[2], c * g[3] + s * g[4], -s * g[3] + c * g[4], g[5]];
-    };
-    els.forEach((e) => { e.k = localK(e); e.map = [...dof[e.i], ...dof[e.j]]; });
-
-    // 全体剛性マトリクスの組み立て
-    const K = new Float64Array(n * n);
-    els.forEach((e) => {
-      const { c, s } = e;
-      const T = [[c, s, 0, 0, 0, 0], [-s, c, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, c, s, 0], [0, 0, 0, -s, c, 0], [0, 0, 0, 0, 0, 1]];
-      for (let p = 0; p < 6; p++) {
-        const P_ = e.map[p]; if (P_ < 0) continue;
-        for (let q = 0; q < 6; q++) {
-          const Q_ = e.map[q]; if (Q_ < 0) continue;
-          let v = 0;
-          for (let r = 0; r < 6; r++) for (let t = 0; t < 6; t++) v += T[r][p] * e.k[r][t] * T[t][q];
-          K[P_ * n + Q_] += v;
+      // 全体剛性マトリクス
+      const K = new Float64Array(n * n);
+      els.forEach((e) => {
+        const { c, s } = e;
+        const T = [[c, s, 0, 0, 0, 0], [-s, c, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [0, 0, 0, c, s, 0], [0, 0, 0, -s, c, 0], [0, 0, 0, 0, 0, 1]];
+        for (let p = 0; p < 6; p++) {
+          const P_ = e.map[p]; if (P_ < 0) continue;
+          for (let q = 0; q < 6; q++) {
+            const Q_ = e.map[q]; if (Q_ < 0) continue;
+            let v = 0;
+            for (let r = 0; r < 6; r++) for (let t = 0; t < 6; t++) v += T[r][p] * e.k[r][t] * T[t][q];
+            K[P_ * n + Q_] += v;
+          }
+        }
+      });
+      // LU分解（部分ピボット）を一度だけ行い、荷重ごとに前進・後退代入
+      const piv = new Int32Array(n);
+      for (let k = 0; k < n; k++) {
+        let m = k, mv = Math.abs(K[k * n + k]);
+        for (let i = k + 1; i < n; i++) { const v = Math.abs(K[i * n + k]); if (v > mv) { mv = v; m = i; } }
+        piv[k] = m;
+        if (m !== k) for (let j = 0; j < n; j++) { const t = K[k * n + j]; K[k * n + j] = K[m * n + j]; K[m * n + j] = t; }
+        const d = K[k * n + k];
+        for (let i = k + 1; i < n; i++) {
+          const f = (K[i * n + k] /= d);
+          if (f) for (let j = k + 1; j < n; j++) K[i * n + j] -= f * K[k * n + j];
         }
       }
-    });
+      const solve = (F) => {
+        const x = Float64Array.from(F);
+        for (let k = 0; k < n; k++) { const m = piv[k]; if (m !== k) { const t = x[k]; x[k] = x[m]; x[m] = t; } }
+        for (let i = 0; i < n; i++) for (let j = 0; j < i; j++) x[i] -= K[i * n + j] * x[j];
+        for (let i = n - 1; i >= 0; i--) { for (let j = i + 1; j < n; j++) x[i] -= K[i * n + j] * x[j]; x[i] /= K[i * n + i]; }
+        return x;
+      };
 
-    // LU分解（部分ピボット）を一度だけ行い、荷重ごとに前進・後退代入
-    const piv = new Int32Array(n);
-    for (let k = 0; k < n; k++) {
-      let m = k, mv = Math.abs(K[k * n + k]);
-      for (let i = k + 1; i < n; i++) { const v = Math.abs(K[i * n + k]); if (v > mv) { mv = v; m = i; } }
-      piv[k] = m;
-      if (m !== k) for (let j = 0; j < n; j++) { const t = K[k * n + j]; K[k * n + j] = K[m * n + j]; K[m * n + j] = t; }
-      const d = K[k * n + k];
-      for (let i = k + 1; i < n; i++) {
-        const f = (K[i * n + k] /= d);
-        if (f) for (let j = k + 1; j < n; j++) K[i * n + j] -= f * K[k * n + j];
-      }
-    }
-    const solve = (F) => {
-      const x = Float64Array.from(F);
-      for (let k = 0; k < n; k++) { const m = piv[k]; if (m !== k) { const t = x[k]; x[k] = x[m]; x[m] = t; } }
-      for (let i = 0; i < n; i++) for (let j = 0; j < i; j++) x[i] -= K[i * n + j] * x[j];
-      for (let i = n - 1; i >= 0; i--) { for (let j = i + 1; j < n; j++) x[i] -= K[i * n + j] * x[j]; x[i] /= K[i * n + i]; }
-      return x;
+      const md = { pre, nodes, key, els, dof, n };
+      md.loadNodes = [...new Set(els.filter((e) => e.load).flatMap((e) => [e.i, e.j]))]
+        .filter((k) => !nodes[k].sup).sort((a, b) => nodes[a].y - nodes[b].y || nodes[a].x - nodes[b].x);
+      const topY = Math.max(...md.loadNodes.map((k) => nodes[k].y));
+      md.demoNodes = md.loadNodes.filter((k) => nodes[k].y === topY).sort((a, b) => nodes[a].x - nodes[b].x);
+      md.vCase = new Map();
+      md.loadNodes.forEach((k) => { const F = new Float64Array(n); F[dof[k][1]] = -P; md.vCase.set(k, solve(F)); });
+      const F = new Float64Array(n);
+      pre.lat.forEach(([x, y, q]) => { F[dof[key.get(kk(x, y))][0]] += q; });
+      md.hCase = solve(F);
+      md.Qsum = pre.lat.reduce((s, l) => s + l[2], 0);
+      // 表示スケールの基準（荷重位置で図の大きさが変わるよう、モデルとケースごとに固定）
+      md.ref = { v: { M: 0, Q: 0, N: 0, d: 0 }, h: peaks(md, md.hCase) };
+      md.vCase.forEach((u) => { const p = peaks(md, u); for (const k in p) md.ref.v[k] = Math.max(md.ref.v[k], p[k]); });
+      const xs = nodes.map((nd) => nd.x), ys = nodes.map((nd) => nd.y);
+      md.box = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+      return md;
     };
 
     // 部材の応力（N, Q, M：i端・j端）
-    const forces = (u, e) => {
+    function forces(md, u, e) {
       const g = e.map.map((d) => (d < 0 ? 0 : u[d]));
-      const ul = toLocal(e, g), f = e.k.map((row) => row.reduce((s, v, t) => s + v * ul[t], 0));
+      const { c, s } = e;
+      const ul = [c * g[0] + s * g[1], -s * g[0] + c * g[1], g[2], c * g[3] + s * g[4], -s * g[3] + c * g[4], g[5]];
+      const f = e.k.map((row) => row.reduce((acc, v, t) => acc + v * ul[t], 0));
       return { N: -f[0], Q: f[1], Mi: -f[2], Mj: f[5] };
-    };
-    const peaks = (u) => {
+    }
+    function peaks(md, u) {
       let M = 0, Q = 0, N = 0, d = 0;
-      els.forEach((e) => {
-        const r = forces(u, e);
+      md.els.forEach((e) => {
+        const r = forces(md, u, e);
         M = Math.max(M, Math.abs(r.Mi), Math.abs(r.Mj)); Q = Math.max(Q, Math.abs(r.Q)); N = Math.max(N, Math.abs(r.N));
       });
-      nodes.forEach((nd, k) => { const [a, b] = dof[k]; if (a >= 0) d = Math.max(d, Math.hypot(u[a], u[b])); });
+      md.nodes.forEach((nd, k) => { const [a, b] = md.dof[k]; if (a >= 0) d = Math.max(d, Math.hypot(u[a], u[b])); });
       return { M, Q, N, d };
-    };
+    }
 
-    // 鉛直荷重：梁上の全節点について解いておく
-    const beamNodes = [...new Set(els.filter((e) => e.kind === "beam").flatMap((e) => [e.i, e.j]))];
-    const vCase = new Map();
-    beamNodes.forEach((k) => { const F = new Float64Array(n); F[dof[k][1]] = -P; vCase.set(k, solve(F)); });
-    // 地震力：各階の柱頭に等分配
-    const F = new Float64Array(n);
-    for (let f = 1; f < LV.length; f++) XS.forEach((x) => { F[dof[key.get(x.toFixed(3) + "," + LV[f].toFixed(3))][0]] += QH[f] / XS.length; });
-    const hCase = solve(F);
-
-    // 表示スケールの基準（荷重位置で図の大きさが変わるよう、ケースごとに固定）
-    const ref = { v: { M: 0, Q: 0, N: 0, d: 0 }, h: peaks(hCase) };
-    vCase.forEach((u) => { const p = peaks(u); for (const k in p) ref.v[k] = Math.max(ref.v[k], p[k]); });
+    const models = {};
+    const getModel = (id) => (models[id] ||= build(PRESETS[id]));
 
     /* ── 状態 ── */
     const st = {
-      load: "v", dia: "M",
-      target: beamNodes[0], hover: false, t0: performance.now(),
-      u: new Float64Array(n), visible: true, W: 0, H: 0, dpr: 1, k: 1, ox: 0, oy: 0, col: {},
+      md: null, load: "v", dia: "M", target: 0, hover: false, t0: performance.now(),
+      u: null, visible: true, W: 0, H: 0, dpr: 1, k: 1, ox: 0, oy: 0, col: {},
     };
-    const roofNodes = beamNodes.filter((k) => nodes[k].y === LV[2]).sort((a, b) => nodes[a].x - nodes[b].x);
-    st.target = roofNodes[Math.floor(roofNodes.length * 0.3)];
+    const setModel = (id) => {
+      st.md = getModel(id);
+      st.u = new Float64Array(st.md.n);
+      st.target = st.md.demoNodes[Math.floor(st.md.demoNodes.length * 0.3)];
+      st.t0 = performance.now();
+      document.querySelectorAll("[data-model]").forEach((b) => b.classList.toggle("on", b.dataset.model === id));
+      resize();
+      if (reduceMotion) still();
+    };
 
     const recolor = () => {
-      st.col = { ink: css("--ink"), ink2: css("--ink-2"), ink3: css("--ink-3"), line: css("--line"), acc: css("--acc"), accSoft: css("--acc-soft"), blue: css("--blue"), paper: css("--paper") };
-      if (reduceMotion) draw(performance.now());
+      st.col = { ink: css("--ink"), ink2: css("--ink-2"), ink3: css("--ink-3"), line: css("--line"), acc: css("--acc"), accSoft: css("--acc-soft"), paper: css("--paper") };
+      if (reduceMotion && st.md) draw(performance.now());
     };
 
-    const resize = () => {
+    function resize() {
+      if (!st.md) return;
       const r = canvas.getBoundingClientRect();
       st.dpr = Math.min(window.devicePixelRatio || 1, 2);
       st.W = r.width; st.H = r.height;
       canvas.width = Math.round(r.width * st.dpr); canvas.height = Math.round(r.height * st.dpr);
       const small = r.width < 520;
-      const pl = small ? 22 : 48, pr = small ? 40 : 64, pt = small ? 64 : 84, pb = small ? 46 : 58;
-      const wx = XS[3] + CANT, wy = LV[2];
+      const pl = small ? 22 : 48, pr = small ? 42 : 66, pt = small ? 64 : 84, pb = small ? 46 : 58;
+      const { x0, x1, y0, y1 } = st.md.box, wx = x1 - x0, wy = y1 - y0;
       st.k = Math.min((r.width - pl - pr) / wx, (r.height - pt - pb) / wy);
-      st.ox = pl + ((r.width - pl - pr) - wx * st.k) / 2;
-      st.oy = r.height - pb - ((r.height - pt - pb) - wy * st.k) / 2;
+      st.ox = pl + ((r.width - pl - pr) - wx * st.k) / 2 - x0 * st.k;
+      st.oy = r.height - pb - ((r.height - pt - pb) - wy * st.k) / 2 + y0 * st.k;
       if (reduceMotion) draw(performance.now());
-    };
+    }
     const sx = (x) => st.ox + x * st.k;
     const sy = (y) => st.oy - y * st.k;
+    const still = () => { st.u = Float64Array.from(st.load === "v" ? st.md.vCase.get(st.target) : st.md.hCase); draw(performance.now()); };
 
-    // 入力：一番近い梁上の節点に荷重を移す
+    // 入力：一番近い載荷点に荷重を移す
     const pick = (ev) => {
       const r = canvas.getBoundingClientRect();
-      const px = ev.clientX - r.left, py = ev.clientY - r.top;
+      const px = ev.clientX - r.left, py = ev.clientY - r.top, { nodes } = st.md;
       let best = st.target, bd = Infinity;
-      beamNodes.forEach((k) => {
+      st.md.loadNodes.forEach((k) => {
         const d = (sx(nodes[k].x) - px) ** 2 + ((sy(nodes[k].y) - py) * 1.6) ** 2;
         if (d < bd) { bd = d; best = k; }
       });
       st.target = best; st.hover = true;
       if (st.load !== "v") setLoad("v");
-      if (reduceMotion) { st.u = Float64Array.from(vCase.get(best)); draw(performance.now()); }
+      if (reduceMotion) still();
     };
     canvas.addEventListener("pointermove", pick);
     canvas.addEventListener("pointerdown", pick);
@@ -206,9 +276,10 @@
     const setLoad = (l) => {
       st.load = l;
       document.querySelectorAll("[data-load]").forEach((b) => b.classList.toggle("on", b.dataset.load === l));
-      if (reduceMotion) { st.u = Float64Array.from(l === "v" ? vCase.get(st.target) : hCase); draw(performance.now()); }
+      if (reduceMotion) still();
     };
     document.querySelectorAll("[data-load]").forEach((b) => b.addEventListener("click", () => setLoad(b.dataset.load)));
+    document.querySelectorAll("[data-model]").forEach((b) => b.addEventListener("click", () => setModel(b.dataset.model)));
     document.querySelectorAll("[data-dia]").forEach((b) => b.addEventListener("click", () => {
       st.dia = b.dataset.dia;
       document.querySelectorAll("[data-dia]").forEach((x) => x.classList.toggle("on", x === b));
@@ -217,87 +288,90 @@
 
     // 目標の変位（時間で動かす：自動デモ・地震の揺れ）
     const targetU = (t) => {
-      if (st.load === "h") {
-        const s = reduceMotion ? 1 : Math.sin((t - st.t0) / 1000 * Math.PI * 1.25);
-        return { u: hCase, s };
-      }
+      const md = st.md;
+      if (st.load === "h") return { u: md.hCase, s: reduceMotion ? 1 : Math.sin((t - st.t0) / 1000 * Math.PI * 1.25) };
       if (!st.hover && !reduceMotion) {
         const ph = ((t - st.t0) / 7000) % 2, f = ph < 1 ? ph : 2 - ph;
-        const eased = f * f * (3 - 2 * f);
-        st.target = roofNodes[Math.round(eased * (roofNodes.length - 1))];
+        st.target = md.demoNodes[Math.round(f * f * (3 - 2 * f) * (md.demoNodes.length - 1))];
       }
-      return { u: vCase.get(st.target), s: 1 };
+      return { u: md.vCase.get(st.target), s: 1 };
     };
 
     const fmt = (v, d = 1) => v.toLocaleString("ja-JP", { minimumFractionDigits: d, maximumFractionDigits: d });
-    const axisName = (x) => {
-      for (let b = 0; b < XS.length; b++) if (Math.abs(x - XS[b]) < 1e-6) return "X" + (b + 1);
-      for (let b = 0; b < XS.length - 1; b++) if (x > XS[b] && x < XS[b + 1]) return `X${b + 1}–X${b + 2}`;
-      return "X4 片持ち";
+    const where = (nd) => {
+      const ax = st.md.pre.axes.find(([x]) => Math.abs(x - nd.x) < 1e-6);
+      const lv = st.md.pre.levels.find(([y]) => Math.abs(y - nd.y) < 1e-6);
+      return `${ax ? ax[1] : `x=${fmt(nd.x)}m`}${lv ? " " + lv[1] : ""}`;
     };
     const ro = { load: $("#ro-load"), m: $("#ro-m"), d: $("#ro-d"), s: $("#ro-s") };
     let roLast = "";
 
     function draw(t) {
-      const { col, dpr } = st;
+      const { col, dpr, md } = st;
+      const { nodes, els, dof, pre } = md;
       const { u: tu, s } = targetU(t);
       // ばねのように追従させる
       const a = reduceMotion ? 1 : 0.18;
-      for (let i = 0; i < n; i++) st.u[i] += (tu[i] * s - st.u[i]) * a;
-      const u = st.u, R = ref[st.load];
+      for (let i = 0; i < md.n; i++) st.u[i] += (tu[i] * s - st.u[i]) * a;
+      const u = st.u, R = md.ref[st.load], { x0, x1, y1 } = md.box, span = x1 - x0;
+      const small = st.W < 520;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, st.W, st.H);
       ctx.lineCap = "round"; ctx.lineJoin = "round";
 
       // 通り芯（一点鎖線）と符号
-      ctx.font = `500 ${st.W < 520 ? 9 : 11}px "IBM Plex Mono", monospace`;
+      ctx.font = `500 ${small ? 9 : 11}px "IBM Plex Mono", monospace`;
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.strokeStyle = col.line; ctx.lineWidth = 1;
       ctx.setLineDash([14, 4, 2, 4]);
-      const topY = sy(LV[2]) - (st.W < 520 ? 34 : 46);
-      XS.forEach((x) => { ctx.beginPath(); ctx.moveTo(sx(x), topY + 11); ctx.lineTo(sx(x), st.oy + 8); ctx.stroke(); });
-      LV.forEach((y) => { ctx.beginPath(); ctx.moveTo(sx(0) - 14, sy(y)); ctx.lineTo(sx(XS[3] + CANT) + 18, sy(y)); ctx.stroke(); });
+      const topY = sy(y1) - (small ? 34 : 46), br = small ? 9 : 11;
+      pre.axes.forEach(([x]) => { ctx.beginPath(); ctx.moveTo(sx(x), topY + br); ctx.lineTo(sx(x), st.oy + 8); ctx.stroke(); });
+      pre.levels.forEach(([y]) => { ctx.beginPath(); ctx.moveTo(sx(x0) - 14, sy(y)); ctx.lineTo(sx(x1) + 18, sy(y)); ctx.stroke(); });
       ctx.setLineDash([]);
-      const br = st.W < 520 ? 9 : 11;
-      XS.forEach((x, i) => {
+      pre.axes.forEach(([x, name]) => {
         ctx.beginPath(); ctx.arc(sx(x), topY, br, 0, Math.PI * 2);
         ctx.fillStyle = col.paper; ctx.fill(); ctx.strokeStyle = col.ink; ctx.stroke();
-        ctx.fillStyle = col.ink; ctx.fillText("X" + (i + 1), sx(x), topY + 0.5);
+        ctx.fillStyle = col.ink; ctx.fillText(name, sx(x), topY + 0.5);
       });
       ctx.textAlign = "left"; ctx.fillStyle = col.ink3;
-      LV.forEach((y, i) => ctx.fillText(LV_NAME[i], sx(XS[3] + CANT) + 22, sy(y) - (i === 0 ? 0 : 7)));
+      pre.levels.forEach(([y, name]) => ctx.fillText(name, sx(x1) + 22, sy(y) - (y === 0 ? 0 : 7)));
 
       // 寸法線
-      const dimY = st.oy + (st.W < 520 ? 26 : 32);
+      const dimY = st.oy + (small ? 26 : 32);
       ctx.strokeStyle = col.ink3; ctx.fillStyle = col.ink2; ctx.textAlign = "center";
-      const dims = [...XS, XS[3] + CANT];
-      ctx.beginPath(); ctx.moveTo(sx(0), dimY); ctx.lineTo(sx(dims[dims.length - 1]), dimY); ctx.stroke();
+      const dims = pre.dims;
+      ctx.beginPath(); ctx.moveTo(sx(dims[0]), dimY); ctx.lineTo(sx(dims[dims.length - 1]), dimY); ctx.stroke();
       dims.forEach((x, i) => {
         ctx.beginPath(); ctx.moveTo(sx(x) - 4, dimY + 4); ctx.lineTo(sx(x) + 4, dimY - 4); ctx.stroke();
-        if (i) ctx.fillText(((x - dims[i - 1]) * 1000).toLocaleString("en-US"), (sx(x) + sx(dims[i - 1])) / 2, dimY - 9);
+        if (i) ctx.fillText(Math.round((x - dims[i - 1]) * 1000).toLocaleString("en-US"), (sx(x) + sx(dims[i - 1])) / 2, dimY - 9);
       });
 
-      // 固定端
+      // 支点（固定端はハッチ、ピンは三角）
       ctx.strokeStyle = col.ink; ctx.lineWidth = 1;
-      XS.forEach((x) => {
-        const X = sx(x), Y = st.oy;
+      nodes.forEach((nd) => {
+        if (!nd.sup) return;
+        const X = sx(nd.x), Y = sy(nd.y);
+        if (nd.sup === "pin") {
+          ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X - 8, Y + 12); ctx.lineTo(X + 8, Y + 12); ctx.closePath(); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(X - 12, Y + 12); ctx.lineTo(X + 12, Y + 12); ctx.stroke();
+          return;
+        }
         ctx.beginPath(); ctx.moveTo(X - 12, Y); ctx.lineTo(X + 12, Y); ctx.stroke();
         for (let h = -10; h <= 10; h += 5) { ctx.beginPath(); ctx.moveTo(X + h, Y); ctx.lineTo(X + h - 5, Y + 6); ctx.stroke(); }
       });
 
-      // 元の架構（細線）
+      // 元の形（細線）
       ctx.strokeStyle = col.line; ctx.lineWidth = 2;
       els.forEach((e) => { ctx.beginPath(); ctx.moveTo(sx(nodes[e.i].x), sy(nodes[e.i].y)); ctx.lineTo(sx(nodes[e.j].x), sy(nodes[e.j].y)); ctx.stroke(); });
 
       // 応力図
-      const span = XS[3] + CANT;
       const refV = R[st.dia] || 1;
-      const sc = (st.dia === "M" ? 0.16 : 0.1) * span / refV;     // 値 → ワールド座標の長さ
-      let peak = { v: 0, x: 0, y: 0 };
-      ctx.fillStyle = col.accSoft; ctx.strokeStyle = col.acc; ctx.lineWidth = 1.4;
+      const sc = (st.dia === "M" ? 0.13 : 0.08) * span / refV;     // 値 → ワールド座標の長さ
+      let peak = { v: 0 };
+      ctx.fillStyle = col.accSoft; ctx.strokeStyle = col.acc; ctx.lineWidth = 1.3;
       els.forEach((e) => {
-        const r = forces(u, e), A = nodes[e.i], B = nodes[e.j];
+        const r = forces(md, u, e), A = nodes[e.i], B = nodes[e.j];
         const nx = -e.s, ny = e.c;
         let vi, vj, sign;
         if (st.dia === "M") { vi = r.Mi; vj = r.Mj; sign = -1; } else if (st.dia === "Q") { vi = vj = r.Q; sign = 1; } else { vi = vj = r.N; sign = 1; }
@@ -313,25 +387,19 @@
       });
 
       // 変形（倍率をかけて誇張表示）
-      const amp = (0.055 * span) / (R.d || 1);
-      ctx.strokeStyle = col.ink; ctx.lineWidth = 2.6;
+      const amp = (0.05 * span) / (R.d || 1);
+      ctx.strokeStyle = col.ink; ctx.lineWidth = 2.4;
       const dp = (k) => { const [a1, b1] = dof[k]; return a1 < 0 ? [0, 0] : [u[a1] * amp, u[b1] * amp]; };
       els.forEach((e) => {
         const A = nodes[e.i], B = nodes[e.j], da = dp(e.i), db = dp(e.j);
         ctx.beginPath(); ctx.moveTo(sx(A.x + da[0]), sy(A.y + da[1])); ctx.lineTo(sx(B.x + db[0]), sy(B.y + db[1])); ctx.stroke();
       });
-      // 節点（柱梁接合部）
-      ctx.fillStyle = col.ink;
-      XS.forEach((x) => LV.slice(1).forEach((y) => {
-        const k = key.get(x.toFixed(3) + "," + y.toFixed(3)), d = dp(k);
-        ctx.fillRect(sx(x + d[0]) - 3, sy(y + d[1]) - 3, 6, 6);
-      }));
 
       // 最大値のラベル
       if (Math.abs(peak.v) > refV * 0.02) {
         const unit = st.dia === "M" ? "kN·m" : "kN";
         const txt = `${st.dia}=${fmt(Math.abs(peak.v))}${unit}`;
-        ctx.font = `600 ${st.W < 520 ? 10 : 11.5}px "IBM Plex Mono", monospace`;
+        ctx.font = `600 ${small ? 10 : 11.5}px "IBM Plex Mono", monospace`;
         const tw = ctx.measureText(txt).width + 10;
         const X = Math.min(Math.max(sx(peak.x) + peak.dx * (tw / 2 + 4), tw / 2 + 2), st.W - tw / 2 - 2);
         const Y = Math.min(sy(peak.y) - peak.dy * 14, st.oy - 12);
@@ -341,44 +409,43 @@
 
       // 荷重の矢印
       ctx.strokeStyle = col.acc; ctx.fillStyle = col.acc; ctx.lineWidth = 2.2;
-      const arrow = (x1, y1, x2, y2) => {
-        const ang = Math.atan2(y2 - y1, x2 - x1);
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x2, y2);
-        ctx.lineTo(x2 - 9 * Math.cos(ang - 0.4), y2 - 9 * Math.sin(ang - 0.4));
-        ctx.lineTo(x2 - 9 * Math.cos(ang + 0.4), y2 - 9 * Math.sin(ang + 0.4)); ctx.closePath(); ctx.fill();
+      const arrow = (ax, ay, bx, by) => {
+        const ang = Math.atan2(by - ay, bx - ax);
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(bx, by);
+        ctx.lineTo(bx - 9 * Math.cos(ang - 0.4), by - 9 * Math.sin(ang - 0.4));
+        ctx.lineTo(bx - 9 * Math.cos(ang + 0.4), by - 9 * Math.sin(ang + 0.4)); ctx.closePath(); ctx.fill();
       };
-      ctx.font = `600 ${st.W < 520 ? 10 : 12}px "IBM Plex Mono", monospace`;
+      ctx.font = `600 ${small ? 10 : 12}px "IBM Plex Mono", monospace`;
       let loadTxt;
       if (st.load === "v") {
         const nd = nodes[st.target], d = dp(st.target), X = sx(nd.x + d[0]), Y = sy(nd.y + d[1]) - 4;
         arrow(X, Y - 46, X, Y);
         ctx.textAlign = "center"; ctx.fillText(`P=${P}kN`, X, Y - 56);
-        loadTxt = `P=${P}kN @ ${axisName(nd.x)} ${LV_NAME[LV.indexOf(nd.y)]}`;
+        loadTxt = `P=${P}kN @ ${where(nd)}`;
       } else {
-        const sgn = Math.sign(s) || 1;
-        for (let f = 1; f < LV.length; f++) {
-          const Y = sy(LV[f]), X = sx(0) - 6;
-          const len = 18 + 28 * QH[f] / Math.max(...QH);
-          if (sgn > 0) arrow(X - len, Y, X, Y); else { const X2 = sx(XS[3] + (f === 2 ? CANT : 0)) + 6; arrow(X2 + len, Y, X2, Y); }
-        }
-        loadTxt = `Q=${QH[1] + QH[2]}kN (Ai分布)`;
+        const qmax = Math.max(...pre.lat.map((l) => l[2]));
+        pre.lat.forEach(([x, y, q]) => {
+          const k = md.key.get(kk(x, y)), d = dp(k), X = sx(x + d[0]), Y = sy(y + d[1]);
+          const len = (18 + 26 * q / qmax) * (Math.sign(s) || 1);
+          arrow(X - len, Y, X - Math.sign(len) * 4, Y);
+        });
+        loadTxt = `Q=${md.Qsum}kN（水平）`;
       }
 
       // 数値表示（実際の値）
-      const pk = peaks(st.load === "v" ? vCase.get(st.target) : hCase);
+      const pk = peaks(md, st.load === "v" ? md.vCase.get(st.target) : md.hCase);
       const roTxt = [loadTxt, `${fmt(pk.M)} kN·m`, `${fmt(pk.d * 1000, 2)} mm`, `変形 ×${Math.round(amp)}`];
       const joined = roTxt.join("|");
       if (joined !== roLast) { roLast = joined; ro.load.textContent = roTxt[0]; ro.m.textContent = roTxt[1]; ro.d.textContent = roTxt[2]; ro.s.textContent = roTxt[3]; }
     }
 
-    const loop = (t) => { if (st.visible) draw(t); requestAnimationFrame(loop); };
+    const loop = (t) => { if (st.visible && st.md) draw(t); requestAnimationFrame(loop); };
     new ResizeObserver(resize).observe(canvas);
     new IntersectionObserver(([en]) => { st.visible = en.isIntersecting; }).observe(canvas);
-    recolor(); resize();
-    if (reduceMotion) { st.u = Float64Array.from(vCase.get(st.target)); draw(performance.now()); }
-    else requestAnimationFrame(loop);
-    // フォント読込み後に一度描き直す
+    recolor();
+    setModel("tree");
+    if (!reduceMotion) requestAnimationFrame(loop);
     document.fonts && document.fonts.ready.then(() => reduceMotion && draw(performance.now()));
     return { recolor };
   })();

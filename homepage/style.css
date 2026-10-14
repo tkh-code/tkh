@@ -151,7 +151,8 @@ h1 b { font-weight: inherit; }
   display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
   padding: 10px 12px; border-bottom: 1px solid var(--line);
 }
-.tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; margin-right: auto; color: var(--ink-2); }
+.tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; color: var(--ink-2); width: 100%; }
+.models { margin-right: auto; }
 .tag::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--acc); margin-right: 8px; animation: blink 1.6s infinite; vertical-align: 1px; }
 @keyframes blink { 50% { opacity: .2; } }
 .seg { display: inline-flex; border: 1px solid var(--ink); }
