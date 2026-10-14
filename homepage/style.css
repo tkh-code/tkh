@@ -15,7 +15,7 @@
   --mincho: "Shippori Mincho B1", "Yu Mincho", "YuMincho", serif;
   --sans: "Noto Sans JP", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
-  --gut: clamp(16px, 4vw, 56px);
+  --gut: max(clamp(16px, 4vw, 56px), env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
   --bar-h: 64px;
 }
 
@@ -60,7 +60,7 @@ button { font: inherit; color: inherit; }
 
 /* ───────── ヘッダー（通り芯） ───────── */
 .bar {
-  position: sticky; top: 0; z-index: 50;
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 50;
   height: var(--bar-h);
   display: flex; align-items: center; gap: 20px;
   padding: 0 var(--gut);
@@ -396,6 +396,6 @@ h1 b { font-weight: inherit; }
 }
 
 /* スクロールで現れる */
-.rv { opacity: 0; transform: translateY(14px); transition: opacity .7s, transform .7s cubic-bezier(.2,.7,.2,1); }
-.rv.in { opacity: 1; transform: none; }
+.rv { transform: translateY(10px); transition: transform .7s cubic-bezier(.2,.7,.2,1); }
+.rv.in { transform: none; }
 @media (prefers-reduced-motion: reduce) { .rv { opacity: 1; transform: none; transition: none; } }
