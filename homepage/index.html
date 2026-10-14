@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ja" data-theme="paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TECTONICA INC. ｜ 株式会社テクトニカ 構造設計</title>
+<meta name="description" content="株式会社テクトニカは東京・広尾の構造設計事務所です。建築物・土木構造物・アート作品の構造設計・監理、耐震診断・耐震改修設計を行っています。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&family=Shippori+Mincho+B1:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 通り芯ナビゲーション -->
+<header class="bar">
+  <a class="logo" href="#top" aria-label="TECTONICA INC. トップへ">
+    <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 34V8h32v26M4 8l16 13L36 8M20 21v13"/></svg>
+    <span>TECTONICA<small>INC.</small></span>
+  </a>
+  <nav class="axes" aria-label="セクション">
+    <a href="#about"><i>X1</i><span>理念</span></a>
+    <a href="#works"><i>X2</i><span>作品</span></a>
+    <a href="#index"><i>X3</i><span>部材リスト</span></a>
+    <a href="#record"><i>X4</i><span>受賞・掲載</span></a>
+    <a href="#services"><i>X5</i><span>業務</span></a>
+    <a href="#office"><i>X6</i><span>事務所</span></a>
+  </nav>
+  <button class="theme" type="button" aria-pressed="false" title="青図モードに切り替え">
+    <span class="sw"></span><span class="lb">青図</span>
+  </button>
+</header>
+
+<main id="top">
+
+  <!-- HERO：触れると構造解析する架構 -->
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">STRUCTURAL ENGINEERS — TOKYO, HIROO</p>
+      <h1><span>力の流れを、</span><span>かたちに<b class="acc">。</b></span></h1>
+      <p class="lead">テクトニカは、建築・土木構造物・アート作品の構造設計を行う構造設計事務所です。住宅から公共建築、万博の休憩所、美術館の什器まで。素材とスケールを横断しながら、建築家とともに「構造から考える建築」をつくっています。</p>
+      <p class="hint"><b>TRY →</b> 右の架構にカーソルを置くと、その位置に荷重がかかります。表示している変形と応力図は、ブラウザ内でその場で解いた解析結果です。</p>
+    </div>
+
+    <figure class="lab" aria-label="インタラクティブな骨組の構造解析">
+      <div class="lab-head">
+        <span class="tag">LIVE FRAME ANALYSIS</span>
+        <div class="seg" role="group" aria-label="荷重">
+          <button type="button" data-load="v" class="on">鉛直荷重 P</button>
+          <button type="button" data-load="h">地震力 Q</button>
+        </div>
+        <div class="seg" role="group" aria-label="応力図">
+          <button type="button" data-dia="M" class="on">M</button>
+          <button type="button" data-dia="Q">Q</button>
+          <button type="button" data-dia="N">N</button>
+        </div>
+      </div>
+      <canvas id="frame" aria-hidden="true"></canvas>
+      <figcaption class="readout" aria-live="polite">
+        <span><em>LOAD</em><b id="ro-load">—</b></span>
+        <span><em>M<sub>max</sub></em><b id="ro-m">—</b></span>
+        <span><em>δ<sub>max</sub></em><b id="ro-d">—</b></span>
+        <span><em>SCALE</em><b id="ro-s">—</b></span>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- 数字の帯 -->
+  <section class="ticks" aria-label="数字で見るテクトニカ">
+    <div><b data-count="since">2012</b><span>設立</span></div>
+    <div><b data-count="projects">440+</b><span>担当したプロジェクト</span></div>
+    <div><b data-count="awards">0</b><span>関わった作品の受賞</span></div>
+    <div><b data-count="pubs">0</b><span>雑誌・メディア掲載</span></div>
+  </section>
+
+  <!-- X1 理念 -->
+  <section id="about" class="sec">
+    <h2 class="sec-h"><i>X1</i><span>ABOUT</span><em>構造から、考える。</em></h2>
+    <div class="about">
+      <p class="about-lead">構造は、計算の「結果」ではなく設計の「出発点」だと考えています。<br>どこに柱を立て、どの方向に力を逃がすか。その選び方ひとつで、空間の明るさも、素材の見え方も、建築の佇まいも変わります。</p>
+      <ol class="tenets">
+        <li><span class="n">01</span><h3>対話する構造</h3><p>スケッチの段階から建築家と並走し、架構のアイデアを複数案で提案します。数字は、議論を前に進めるための言葉です。</p></li>
+        <li><span class="n">02</span><h3>素材とスケールを横断する</h3><p>木造・RC造・S造・混構造、新築から改修、仮設パビリオン、家具・什器、アート作品まで。対象を選ばず、それぞれに固有の解き方を探します。</p></li>
+        <li><span class="n">03</span><h3>解析と、ものづくり</h3><p>解析・作図ツールの自社開発、デジタルデザイン＆ファブリケーション。計算と製作のあいだをつなぎ、つくれる構造を描きます。</p></li>
+        <li><span class="n">04</span><h3>まちと教育へ</h3><p>建築教育のワークショップや都市計画の研究を通じて、構造の考え方を建築の外へもひらいていきます。</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- X2 作品 -->
+  <section id="works" class="sec">
+    <h2 class="sec-h"><i>X2</i><span>SELECTED WORKS</span><em>選んだ作品</em></h2>
+    <div class="works" id="works-grid"></div>
+  </section>
+
+  <!-- X3 部材リスト（全プロジェクト一覧） -->
+  <section id="index" class="sec">
+    <h2 class="sec-h"><i>X3</i><span>MEMBER LIST</span><em>プロジェクト一覧</em></h2>
+    <div class="list-tools">
+      <label class="search"><span>検索</span><input id="q" type="search" placeholder="作品名・設計者・地域" autocomplete="off"></label>
+      <div class="chips" id="chips" role="group" aria-label="地域で絞り込み"></div>
+      <p class="count"><b id="hits">0</b> / <span id="total">0</span> 件</p>
+    </div>
+    <div class="table-wrap">
+      <table class="members">
+        <thead><tr><th>No.</th><th>作品名</th><th>意匠設計</th><th>所在地</th><th>竣工</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <button class="more" id="more" type="button">すべて表示 ↓</button>
+    <div class="peek" id="peek" aria-hidden="true"><img alt=""></div>
+  </section>
+
+  <!-- X4 受賞・掲載 -->
+  <section id="record" class="sec">
+    <h2 class="sec-h"><i>X4</i><span>AWARDS &amp; PRESS</span><em>受賞・掲載</em></h2>
+    <div class="record">
+      <div class="loadchart">
+        <h3>掲載数の分布荷重図 <small>w = 掲載件数 / 年</small></h3>
+        <svg id="pubchart" role="img" aria-label="年別の雑誌掲載件数"></svg>
+        <p class="note">雑誌名： 新建築／GA JAPAN／GA HOUSES／住宅特集／日経アーキテクチュア／商店建築／FRAME ほか</p>
+      </div>
+      <div class="awards">
+        <h3>受賞（作品に関わったもの）</h3>
+        <ul id="awards"></ul>
+        <button class="more sm" id="more-aw" type="button">すべての受賞を表示 ↓</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- X5 業務 -->
+  <section id="services" class="sec">
+    <h2 class="sec-h"><i>X5</i><span>SERVICES</span><em>業務内容</em></h2>
+    <ul class="svc">
+      <li><svg viewBox="0 0 80 56"><path d="M8 50V14h64v36M8 32h64M30 14v36M50 14v36"/></svg><h3>建築物の構造設計・監理</h3><p>住宅、集合住宅、学校、オフィス、工場、公共施設。基本設計から実施設計、工事監理まで。</p></li>
+      <li><svg viewBox="0 0 80 56"><path d="M4 44h72M10 44Q40 2 70 44M22 44V27M40 44V18M58 44V27"/></svg><h3>土木構造物・工作物</h3><p>橋、ステージ、屋外工作物、看板や架台など、建築の外にある構造物。</p></li>
+      <li><svg viewBox="0 0 80 56"><path d="M40 52V20M40 30L22 12M40 26L58 8M40 38L60 28M40 40L18 32M10 52h60"/></svg><h3>アート作品・什器・仮設</h3><p>インスタレーション、展示什器、遊具、パビリオン。小さくても、ゆるがせにしない構造。</p></li>
+      <li><svg viewBox="0 0 80 56"><path d="M10 50V8h60v42M10 8l60 42M70 8L10 50M10 29h60"/></svg><h3>耐震診断・耐震改修設計</h3><p>既存建築物の現地調査・診断から補強設計まで。使いながら、残すための構造。</p></li>
+      <li><svg viewBox="0 0 80 56"><path d="M6 46C20 10 34 10 40 28S60 46 74 10M6 46h68M14 46V36M26 46V22M38 46V26M50 46V36M62 46V30"/></svg><h3>デジタルデザイン＆ファブリケーション</h3><p>パラメトリックな形状検討、解析ツール開発、製作データまでを一貫して扱います。</p></li>
+      <li><svg viewBox="0 0 80 56"><circle cx="20" cy="18" r="7"/><circle cx="40" cy="14" r="7"/><circle cx="60" cy="18" r="7"/><path d="M8 50c0-12 24-12 24 0M28 50c0-14 24-14 24 0M48 50c0-12 24-12 24 0"/></svg><h3>建築教育・都市計画研究</h3><p>ワークショップや研究を通じて、構造の考え方をまちと次の世代へ。</p></li>
+    </ul>
+  </section>
+
+  <!-- X6 事務所 -->
+  <section id="office" class="sec">
+    <h2 class="sec-h"><i>X6</i><span>OFFICE</span><em>事務所概要</em></h2>
+    <div class="office">
+      <dl class="spec">
+        <div><dt>社名</dt><dd>株式会社テクトニカ<br><span class="en">TECTONICA INC.</span></dd></div>
+        <div><dt>代表取締役</dt><dd>鈴木 芳典</dd></div>
+        <div><dt>設立</dt><dd>2012年4月1日<br>2016年2月9日 法人設立</dd></div>
+        <div><dt>所在地</dt><dd>東京都渋谷区広尾</dd></div>
+        <div><dt>業務内容</dt><dd>建築物・土木構造物・アート作品等の構造設計及び監理<br>既存建築物の耐震診断及び耐震改修設計</dd></div>
+        <div><dt>メディア</dt><dd id="tv"></dd></div>
+      </dl>
+      <div class="contact">
+        <p class="c-lead">構造のご相談は、計画のごく初期からどうぞ。<br>スケッチ1枚からでも構いません。</p>
+        <a class="mail" href="mailto:info@tectonica.jp"><span>info@tectonica.jp</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></a>
+        <p class="c-sub">採用・インターンについてのお問い合わせも、こちらのアドレスまで。</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 表題欄（図面枠） -->
+<footer class="titleblock">
+  <div class="tb-cell tb-name"><em>工事名称</em><b>TECTONICA INC. WEBSITE</b></div>
+  <div class="tb-cell"><em>図面名称</em><b>構造概要（トップページ）</b></div>
+  <div class="tb-cell"><em>縮尺</em><b>1 : 1</b></div>
+  <div class="tb-cell"><em>図番</em><b>S-001</b></div>
+  <div class="tb-cell"><em>日付</em><b id="tb-date">2026.10</b></div>
+  <div class="tb-cell tb-office"><em>構造設計</em><b>株式会社テクトニカ</b><small>© TECTONICA INC.</small></div>
+</footer>
+
+<script src="data.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
