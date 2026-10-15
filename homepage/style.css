@@ -273,7 +273,55 @@ h1 b { font-weight: inherit; }
   .mini div:nth-child(n+3) { border-top: 1px solid var(--line); }
 }
 
-/* ───────── X3 部材リスト ───────── */
+/* ───────── X3 建方の記録 ───────── */
+.proc { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: clamp(24px, 4vw, 56px); align-items: start; }
+.kicker { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: .06em; margin: 0 0 10px; }
+.proc-text h3 { font-family: var(--mincho); font-weight: 800; font-size: clamp(24px, 2.6vw, 34px); line-height: 1.45; margin: 0 0 14px; text-wrap: balance; }
+.proc-text > p:not(.kicker) { font-size: 14px; color: var(--ink-2); margin: 0 0 20px; }
+.sketch { margin: 0; border: 1px solid var(--line); padding: 12px 12px 8px; background: color-mix(in srgb, var(--paper) 70%, transparent); }
+.sketch svg { width: 100%; height: auto; display: block; }
+.sketch .ink { fill: none; stroke: var(--ink); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.sketch .thin { stroke-width: 1.2; }
+.sketch .gl, .sketch .hatch { fill: none; stroke: var(--ink-3); stroke-width: 1; }
+.sketch .dash { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 6 3 1 3; }
+.sketch .load { fill: none; stroke: var(--acc); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.sketch .pt { fill: var(--acc); }
+.sketch text { font-family: var(--mono); font-size: 10.5px; fill: var(--ink-2); }
+.sketch figcaption { font-size: 11.5px; color: var(--ink-3); line-height: 1.6; margin-top: 6px; }
+.sketch .draw { stroke-dasharray: 1; stroke-dashoffset: 0; }
+.sketch.go .draw { animation: draw 2.4s cubic-bezier(.6,.1,.3,1) both; }
+.sketch.go .draw:nth-of-type(3) { animation-delay: .3s; } .sketch.go .draw:nth-of-type(4) { animation-delay: .9s; }
+.sketch.go .draw:nth-of-type(5) { animation-delay: 1.1s; } .sketch.go .draw:nth-of-type(6) { animation-delay: 1.3s; }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .sketch.go .draw { animation: none; } }
+
+.stage { position: relative; aspect-ratio: 4 / 3; max-width: 100%; background: var(--paper-2); overflow: hidden; border: 1px solid var(--ink); }
+.stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .45s; filter: var(--img-filter); }
+.stage img.on { opacity: 1; }
+.stage .stamp {
+  position: absolute; left: 12px; top: 12px; z-index: 2; font-family: var(--mono); font-size: 12px; font-weight: 600;
+  background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 2px 8px; letter-spacing: .06em;
+}
+.gantt { position: relative; height: 74px; margin-top: 10px; cursor: pointer; touch-action: none; outline: none; user-select: none; }
+.gantt:focus-visible { box-shadow: 0 0 0 2px var(--acc); }
+.gantt .axis { position: absolute; left: 0; right: 0; top: 40px; border-top: 1px solid var(--ink); }
+.gantt .day { position: absolute; top: 40px; height: 6px; border-left: 1px solid var(--ink-3); }
+.gantt .dl { position: absolute; top: 50px; transform: translateX(-50%); font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap; }
+.gantt .gbar { position: absolute; height: 10px; background: var(--ink); opacity: .85; }
+.gantt .gbar.acc { background: var(--acc); }
+.gantt .bl { position: absolute; font-size: 10.5px; color: var(--ink-2); white-space: nowrap; transform: translateY(-100%); padding-bottom: 2px; }
+.gantt .head { position: absolute; top: 0; bottom: 18px; width: 0; border-left: 2px solid var(--acc); transition: left .25s; pointer-events: none; }
+.gantt .head::after { content: ""; position: absolute; left: -6px; bottom: -4px; width: 10px; height: 10px; background: var(--acc); transform: rotate(45deg); }
+.cap { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); min-height: 3.2em; }
+.cap b { font-family: var(--mono); color: var(--ink); font-weight: 500; margin-right: 8px; }
+.shake { margin: clamp(28px, 4vw, 48px) 0 0; display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); gap: clamp(16px, 3vw, 40px); align-items: end; }
+.shake video { width: 100%; max-width: 100%; display: block; border: 1px solid var(--ink); background: var(--paper-2); filter: var(--img-filter); }
+.shake figcaption { font-size: 13.5px; color: var(--ink-2); border-top: 1px solid var(--ink); padding-top: 12px; }
+.shake figcaption b { display: block; font-family: var(--mincho); font-size: 22px; color: var(--ink); margin-bottom: 6px; }
+.shake small { display: block; font-family: var(--mono); font-size: 10px; color: var(--ink-3); margin-top: 8px; }
+@media (max-width: 900px) { .proc, .shake { grid-template-columns: 1fr; } }
+
+/* ───────── X4 部材リスト ───────── */
 .list-tools { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin-bottom: 14px; }
 .search { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--ink); padding: 2px 0; }
 .search span { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
@@ -315,7 +363,7 @@ h1 b { font-weight: inherit; }
 .peek img { width: 100%; aspect-ratio: 4/3; object-fit: cover; filter: var(--img-filter); }
 @media (hover: none) { .peek { display: none; } }
 
-/* ───────── X4 受賞・掲載 ───────── */
+/* ───────── X5 受賞・掲載 ───────── */
 .record { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(28px, 5vw, 64px); }
 .record h3 { font-family: var(--mincho); font-size: 18px; margin: 0 0 12px; font-weight: 700; }
 .record h3 small { font-family: var(--mono); font-weight: 400; font-size: 11px; color: var(--ink-3); margin-left: 8px; }
@@ -337,7 +385,7 @@ h1 b { font-weight: inherit; }
 .awards li span::before { content: "— "; color: var(--acc); }
 @media (max-width: 900px) { .record { grid-template-columns: 1fr; } }
 
-/* ───────── X5 業務 ───────── */
+/* ───────── X6 業務 ───────── */
 .svc { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--ink); }
 .svc li { padding: 22px 22px 26px 0; border-bottom: 1px solid var(--line); }
 .svc li:not(:nth-child(3n+1)) { padding-left: 22px; border-left: 1px solid var(--line); }
@@ -355,7 +403,7 @@ h1 b { font-weight: inherit; }
   .svc li:nth-child(even) { padding-left: 0; border-left: 0; }
 }
 
-/* ───────── X6 事務所 ───────── */
+/* ───────── X7 事務所 ───────── */
 .office { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: clamp(28px, 5vw, 72px); padding-bottom: clamp(64px, 9vw, 120px); }
 .spec { margin: 0; border-top: 1px solid var(--ink); }
 .spec div { display: grid; grid-template-columns: 7.5em 1fr; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }

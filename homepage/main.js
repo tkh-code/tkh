@@ -483,6 +483,70 @@
     </article>`).join("") +
     `<div class="mini rv">${MINI.map((m) => `<div><b>${esc(m.t)}</b><span>${esc(m.by)}</span><em>${esc(m.em)}</em></div>`).join("")}</div>`;
 
+
+  /* ───────────────────── 2b. 建方の記録（工程表で写真を送る） ───────────────────── */
+  (() => {
+    const STEPS = [
+      ["01-0813-mast", 13, "マスト建方", "湾曲したマストが自立。根元のコーンから先端の吊り点まで、一本の曲線でつながる。"],
+      ["02-0813-shell", 13, "シェル取付開始", "吊り点まわりからシェルのピースを取り付けはじめる。"],
+      ["03-0820", 20, "シェル取付", "仮設の架台で受けながら、シェルを少しずつ閉じていく。"],
+      ["04-0820-up", 20, "シェル取付", "下から見上げる。マストの曲線とシェルの縁が近づいていく。"],
+      ["05-0821", 21, "シェル閉合", "半球が閉じた。高所作業車で仕上げを進める。"],
+      ["06-0823", 23, "仮設撤去", "架台を外し、シェルがマストだけで吊られた状態になる。"],
+      ["07-0823-wide", 23, "仮設撤去", "林の向こうから。周囲の木々と同じくらいのスケール。"],
+      ["08-0829", 29, "完成", "芝が入り、ベンチが置かれて完成。"],
+      ["09-0829-dusk", 29, "点灯", "夕暮れ、シェルの内側が光る。"],
+    ];
+    const PHASES = [[13, 16, "マスト・シェル取付", false], [16, 21, "シェル取付・閉合", false], [21, 24, "仮設撤去", false], [24, 29, "外構・仕上げ", false], [29, 30, "完成", true]];
+    const D0 = 12.5, D1 = 30;
+    const pct = (d) => ((d - D0) / (D1 - D0)) * 100;
+    const stage = $("#stage"), gantt = $("#gantt"), cap = $("#cap");
+    stage.innerHTML = STEPS.map(([f], i) => `<img src="img/process/${f}.jpg" alt="HOAM 現場写真 ${i + 1}" loading="lazy">`).join("") + `<span class="stamp" id="stamp"></span>`;
+    let g = `<div class="axis"></div>`;
+    for (let d = 13; d <= 29; d++) g += `<span class="day" style="left:${pct(d)}%"></span>` + (d % 2 || d === 29 ? `<span class="dl" style="left:${pct(d)}%">${d === 13 ? "8/" : ""}${d}</span>` : "");
+    PHASES.forEach(([a, b, l, acc], i) => {
+      const y = 8 + (i % 2) * 14;
+      g += `<span class="gbar${acc ? " acc" : ""}" style="left:${pct(a)}%;width:${pct(b) - pct(a)}%;top:${y + 12}px"></span>`;
+      if (!acc) g += `<span class="bl" style="left:${pct(a)}%;top:${y + 12}px">${l}</span>`;
+    });
+    gantt.innerHTML = g + `<span class="head" id="head"></span>`;
+    // 同じ日の写真は少しずらして並べる
+    const pos = STEPS.map(([, d], i) => d + 0.5 * STEPS.slice(0, i).filter((s) => s[1] === d).length);
+    const imgs = [...stage.querySelectorAll("img")], head = $("#head"), stamp = $("#stamp");
+    let cur = -1;
+    const show = (i) => {
+      i = Math.max(0, Math.min(STEPS.length - 1, i));
+      if (i === cur) return; cur = i;
+      imgs.forEach((im, k) => { im.classList.toggle("on", k === i); if (Math.abs(k - i) <= 1) im.loading = "eager"; });
+      head.style.left = pct(pos[i]) + "%";
+      const [, d, t, txt] = STEPS[i];
+      stamp.textContent = `2026.08.${d}`;
+      cap.innerHTML = `<b>${esc(t)}</b>${esc(txt)}`;
+      gantt.setAttribute("aria-valuenow", i + 1);
+      gantt.setAttribute("aria-valuetext", `8月${d}日 ${t}`);
+    };
+    const fromX = (x) => {
+      const r = gantt.getBoundingClientRect(), d = D0 + ((x - r.left) / r.width) * (D1 - D0);
+      let best = 0; pos.forEach((p, k) => { if (Math.abs(p - d) < Math.abs(pos[best] - d)) best = k; });
+      show(best);
+    };
+    let drag = false;
+    gantt.addEventListener("pointerdown", (e) => { drag = true; gantt.setPointerCapture(e.pointerId); fromX(e.clientX); });
+    gantt.addEventListener("pointermove", (e) => { if (drag || e.pointerType === "mouse") fromX(e.clientX); });
+    gantt.addEventListener("pointerup", () => { drag = false; });
+    gantt.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") { show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft" || e.key === "ArrowDown") { show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+
+    // スケッチは見えたときに線を引く
+    const sk = $(".sketch");
+    new IntersectionObserver(([en], ob) => { if (en.isIntersecting) { sk.classList.add("go"); ob.disconnect(); } }, { threshold: 0.4 }).observe(sk);
+    // 動きを控える設定では動画を止めておく
+    if (reduceMotion) { const v = $(".shake video"); v.removeAttribute("autoplay"); v.pause(); v.controls = true; }
+  })();
+
   /* ───────────────────── 3. 部材リスト ───────────────────── */
   const PEEK = { 412: "haniyasu-1", 408: "geidai-1", 337: "furukawa-1", 312: "kdu-1", 226: "omishima-1", 338: "hanaju-1", 336: "kcg-1" };
   const projects = DATA.projects.slice();

@@ -21,10 +21,11 @@
   <nav class="axes" aria-label="セクション">
     <a href="#about"><i>X1</i><span>理念</span></a>
     <a href="#works"><i>X2</i><span>作品</span></a>
-    <a href="#index"><i>X3</i><span>部材リスト</span></a>
-    <a href="#record"><i>X4</i><span>受賞・掲載</span></a>
-    <a href="#services"><i>X5</i><span>業務</span></a>
-    <a href="#office"><i>X6</i><span>事務所</span></a>
+    <a href="#process"><i>X3</i><span>建方</span></a>
+    <a href="#index"><i>X4</i><span>部材リスト</span></a>
+    <a href="#record"><i>X5</i><span>受賞・掲載</span></a>
+    <a href="#services"><i>X6</i><span>業務</span></a>
+    <a href="#office"><i>X7</i><span>事務所</span></a>
   </nav>
   <button class="theme" type="button" aria-pressed="false" title="青図モードに切り替え">
     <span class="sw"></span><span class="lb">青図</span>
@@ -99,9 +100,53 @@
     <div class="works" id="works-grid"></div>
   </section>
 
-  <!-- X3 部材リスト（全プロジェクト一覧） -->
+
+  <!-- X3 建方の記録 -->
+  <section id="process" class="sec">
+    <h2 class="sec-h"><i>X3</i><span>ON SITE</span><em>建方の記録</em></h2>
+    <div class="proc">
+      <div class="proc-text">
+        <p class="kicker">HOAM　／　意匠設計：山田紗子建築設計事務所　／　2026</p>
+        <h3>マストの先端から、<br>半球のシェルを吊る。</h3>
+        <p>湾曲した1本のマストが、その先端で大きな半球シェルを吊っています。工場で製作した部材を現地で組み上げていく様子を、8月13日から29日までの現場写真でたどります。工程表をなぞるか、左右キーで送ってください。</p>
+        <figure class="sketch" aria-label="構造の模式スケッチ">
+          <svg viewBox="0 0 320 250" role="img" aria-label="マストとシェルの模式図">
+            <path class="gl" d="M10 232H310"/>
+            <path class="hatch" d="M228 232l-6 8M236 232l-6 8M244 232l-6 8M252 232l-6 8M260 232l-6 8"/>
+            <path class="ink draw" pathLength="1" d="M230 232L242 168L254 232Z"/>
+            <path class="ink draw" pathLength="1" d="M242 168C252 96 230 32 170 26C140 23 122 34 116 52"/>
+            <path class="ink draw" pathLength="1" d="M116 52L116 62"/>
+            <path class="ink draw" pathLength="1" d="M30 148C30 92 66 62 116 62C166 62 202 92 202 148"/>
+            <path class="ink thin draw" pathLength="1" d="M30 148C30 158 72 164 116 164C160 164 202 158 202 148"/>
+            <path class="dash" d="M116 70V148"/>
+            <path class="load" d="M116 96V136M110 128l6 9 6-9"/>
+            <path class="load" d="M242 252V238M236 246l6-9 6 9"/>
+            <path class="load" d="M262 214a16 16 0 1 0 -6 18"/>
+            <circle class="pt" cx="116" cy="56" r="3.5"/>
+            <text x="108" y="122" text-anchor="end">W</text>
+            <text x="126" y="50">吊り点</text>
+            <text x="252" y="104">マスト</text>
+            <text x="40" y="186">シェル</text>
+            <text x="268" y="224">M</text>
+          </svg>
+          <figcaption>構造の模式スケッチ。シェルの重さ W を吊り点で受け、湾曲したマストが曲げで根元まで伝える。</figcaption>
+        </figure>
+      </div>
+      <div class="proc-view">
+        <div class="stage" id="stage"></div>
+        <div class="gantt" id="gantt" role="slider" tabindex="0" aria-label="工程表：撮影日" aria-valuemin="1" aria-valuemax="9" aria-valuenow="1"></div>
+        <p class="cap" id="cap"></p>
+      </div>
+    </div>
+    <figure class="shake">
+      <video poster="img/process/shake-poster.jpg" muted loop playsinline autoplay preload="metadata"><source src="img/process/shake.webm" type="video/webm"><source src="img/process/shake.mp4" type="video/mp4"></video>
+      <figcaption><b>揺らし試験</b>完成後、人がシェルにぶら下がって揺れ方を確かめました。計算で予測した揺れと、体で感じる揺れ。その両方を確かめて引き渡します。<small>動画：HOAM スタッフ撮影</small></figcaption>
+    </figure>
+  </section>
+
+  <!-- X4 部材リスト（全プロジェクト一覧） -->
   <section id="index" class="sec">
-    <h2 class="sec-h"><i>X3</i><span>MEMBER LIST</span><em>プロジェクト一覧</em></h2>
+    <h2 class="sec-h"><i>X4</i><span>MEMBER LIST</span><em>プロジェクト一覧</em></h2>
     <div class="list-tools">
       <label class="search"><span>検索</span><input id="q" type="search" placeholder="作品名・設計者・地域" autocomplete="off"></label>
       <div class="chips" id="chips" role="group" aria-label="地域で絞り込み"></div>
@@ -119,7 +164,7 @@
 
   <!-- X4 受賞・掲載 -->
   <section id="record" class="sec">
-    <h2 class="sec-h"><i>X4</i><span>AWARDS &amp; PRESS</span><em>受賞・掲載</em></h2>
+    <h2 class="sec-h"><i>X5</i><span>AWARDS &amp; PRESS</span><em>受賞・掲載</em></h2>
     <div class="record">
       <div class="loadchart">
         <h3>掲載数の分布荷重図 <small>w = 掲載件数 / 年</small></h3>
@@ -136,7 +181,7 @@
 
   <!-- X5 業務 -->
   <section id="services" class="sec">
-    <h2 class="sec-h"><i>X5</i><span>SERVICES</span><em>業務内容</em></h2>
+    <h2 class="sec-h"><i>X6</i><span>SERVICES</span><em>業務内容</em></h2>
     <ul class="svc">
       <li><svg viewBox="0 0 80 56"><path d="M8 50V14h64v36M8 32h64M30 14v36M50 14v36"/></svg><h3>建築物の構造設計・監理</h3><p>住宅、集合住宅、学校、オフィス、工場、公共施設。基本設計から実施設計、工事監理まで。</p></li>
       <li><svg viewBox="0 0 80 56"><path d="M4 44h72M10 44Q40 2 70 44M22 44V27M40 44V18M58 44V27"/></svg><h3>土木構造物・工作物</h3><p>橋、ステージ、屋外工作物、看板や架台など、建築の外にある構造物。</p></li>
@@ -149,7 +194,7 @@
 
   <!-- X6 事務所 -->
   <section id="office" class="sec">
-    <h2 class="sec-h"><i>X6</i><span>OFFICE</span><em>事務所概要</em></h2>
+    <h2 class="sec-h"><i>X7</i><span>OFFICE</span><em>事務所概要</em></h2>
     <div class="office">
       <dl class="spec">
         <div><dt>社名</dt><dd>株式会社テクトニカ<br><span class="en">TECTONICA INC.</span></dd></div>
