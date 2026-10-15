@@ -453,13 +453,24 @@
   try { const t = localStorage.getItem("tectonica-theme"); if (t === "blue") setTheme("blue"); } catch (_) { /* 何もしない */ }
 
   /* ───────────────────── 2. 作品 ───────────────────── */
+  // 各作品：写真のあとに、その案件の実際のスケッチ・検討図を横に並べる
+  const P = (src, cap) => ({ src: `img/${src}.jpg`, cap, kind: "photo" });
+  const S = (src, cap, tag = "SKETCH") => ({ src: `img/draw/${src}.jpg`, cap, kind: "draw", tag });
   const WORKS = [
-    { no: "0338", t: "花重リノベーション", by: "マル・アーキテクチャ／東京藝術大学", loc: "東京都台東区", img: ["hanaju-1", "hanaju-2"], aw: ["日本建築学会作品選奨 2025", "東京建築賞 最優秀賞", "AACA賞2024 優秀賞", "グッドデザイン賞2024"], credit: "Photo: Takuya Seki", cls: "wide", dim: "RENOVATION / WOOD" },
-    { no: "0336", t: "Karuizawa Commongrounds", by: "Klein Dytham architecture", loc: "長野県軽井沢町", img: ["kcg-1", "kcg-2"], aw: ["WAF 2023 Small Project of the Year"], cls: "narrow", dim: "KARUIZAWA" },
-    { no: "0312", t: "神奈川歯科大学 キャンパスセンター", by: "アトリエMEME", loc: "神奈川県横須賀市", img: ["kdu-1", "kdu-2"], aw: ["The Architecture MasterPrize 2024", "神奈川建築コンクール2025 優秀賞", "Tecture Award 2024"], cls: "narrow", dim: "YOKOSUKA" },
-    { no: "0408", t: "東京藝術大学 芸術未来研究場 本部", by: "MARU。architecture", loc: "東京都台東区", img: ["geidai-1", "geidai-2"], pub: "新建築 2025年4月号／GA JAPAN 189・191", credit: "Photo: Takuya Seki", cls: "wide", dim: "UENO" },
-    { no: "0412", t: "ハニヤスの家 — HANIYASU HOUSE", by: "AATISMO", loc: "神奈川県", img: ["haniyasu-1", "haniyasu-2"], aw: ["FRAME 2026 monthly award"], pub: "GA HOUSES 204／住宅特集 2026年2月号", cls: "wide", dim: "2025" },
-    { no: "0337", t: "古川製作所 新社屋＋工場", by: "スキーマ建築計画", img: ["furukawa-1", "furukawa-2"], pub: "新建築 2025年1月号／GA JAPAN 190", cls: "narrow", dim: "OFFICE + FACTORY" },
+    { no: "0338", t: "花重リノベーション", by: "マル・アーキテクチャ／東京藝術大学", loc: "東京都台東区", aw: ["日本建築学会作品選奨 2025", "東京建築賞 最優秀賞", "AACA賞2024 優秀賞", "グッドデザイン賞2024"], credit: "Photo: Takuya Seki", cls: "wide", dim: "RENOVATION / WOOD",
+      slides: [P("hanaju-1"), P("hanaju-2"), S("hanaju-node", "鉄骨の接合部", "DETAIL"), S("hanaju-print", "接合部の初期案（3Dプリント模型）", "MODEL"), S("hanaju-print2", "柱・梁受け・梁を組み合わせた模型", "MODEL")] },
+    { no: "0336", t: "Karuizawa Commongrounds", by: "Klein Dytham architecture", loc: "長野県軽井沢町", aw: ["WAF 2023 Small Project of the Year"], cls: "narrow", dim: "KARUIZAWA",
+      slides: [P("kcg-1"), P("kcg-2"), S("kcg-model", "初期検討の解析モデル（3D）", "MODEL"), S("kcg-plan", "耐震要素の配置計画（手書きの検討）")] },
+    { no: "0312", t: "神奈川歯科大学 キャンパスセンター", by: "アトリエMEME", loc: "神奈川県横須賀市", aw: ["The Architecture MasterPrize 2024", "神奈川建築コンクール2025 優秀賞", "Tecture Award 2024"], cls: "narrow", dim: "YOKOSUKA",
+      slides: [P("kdu-1"), P("kdu-2")] },
+    { no: "0408", t: "東京藝術大学 芸術未来研究場 本部", by: "MARU。architecture", loc: "東京都台東区", pub: "新建築 2025年4月号／GA JAPAN 189・191", credit: "Photo: Takuya Seki", cls: "wide", dim: "UENO",
+      slides: [P("geidai-1"), P("geidai-2"), S("geidai-sketch", "改修部の詳細スケッチ（新設壁・既存躯体）"), S("geidai-mullion", "マリオンの変形図", "STUDY")] },
+    { no: "0412", t: "ハニヤスの家 — HANIYASU HOUSE", by: "AATISMO", loc: "神奈川県", aw: ["FRAME 2026 monthly award"], pub: "GA HOUSES 204／住宅特集 2026年2月号", cls: "wide", dim: "2025",
+      slides: [P("haniyasu-1"), P("haniyasu-2"), S("haniyasu-sketch", "構造打合せのスケッチ（曲面の架構と足元）"), S("haniyasu-memo", "打合せメモ", "MEMO")] },
+    { no: "0337", t: "古川製作所 新社屋＋工場", by: "スキーマ建築計画", pub: "新建築 2025年1月号／GA JAPAN 190", cls: "narrow", dim: "OFFICE + FACTORY",
+      slides: [P("furukawa-1"), P("furukawa-2"), S("furukawa-frame", "鉄骨の伏図", "DRAWING")] },
+    { no: "0500", t: "HOAM", by: "山田紗子建築設計事務所", loc: "2026", cls: "full", dim: "PAVILION",
+      slides: [P("process/09-0829-dusk"), P("process/08-0829"), S("hoam-sketch", "最初のスケッチ：マストで重さ（weight）を吊る"), S("hoam-model", "解析モデル：ステンレスのマストとFRPのシェル", "MODEL"), S("hoam-study", "マスト断面の比較検討（M図・変形）", "STUDY")] },
   ];
   const MINI = [
     { t: "daita2019", by: "山田紗子建築設計事務所", em: "第36回 吉岡賞・住宅建築賞2020" },
@@ -467,9 +478,18 @@
     { t: "やま仙（ウガンダ）", by: "TERRAIN architects", em: "グッドデザイン賞2020 金賞" },
     { t: "大阪・関西万博 休憩所3", by: "山田紗子建築設計事務所", em: "新建築 2025年12月号" },
   ];
-  $("#works-grid").innerHTML = WORKS.map((w) => `
+  $("#works-grid").innerHTML = WORKS.map((w) => {
+    const nDraw = w.slides.filter((s) => s.kind === "draw").length;
+    return `
     <article class="work ${w.cls} rv">
-      <div class="ph" data-dim="← ${esc(w.dim)} →">${w.img.map((s, i) => `<img src="img/${s}.jpg" alt="${esc(w.t)}${i ? "（内観）" : ""}" loading="lazy">`).join("")}</div>
+      <div class="strip-wrap">
+        <div class="strip" tabindex="0" aria-label="${esc(w.t)} の写真とスケッチ">
+          ${w.slides.map((s, i) => `<figure class="slide ${s.kind}"><img src="${s.src}" alt="${esc(w.t)}${s.cap ? "：" + esc(s.cap) : ""}" loading="lazy">${s.cap ? `<figcaption><i>${s.tag || "PHOTO"}</i>${esc(s.cap)}</figcaption>` : ""}</figure>`).join("")}
+        </div>
+        <span class="dim">← ${esc(w.dim)} →</span>
+        ${w.slides.length > 1 ? `<div class="pager"><button type="button" class="prev" aria-label="前へ">←</button><span class="cnt">1 / ${w.slides.length}</span><button type="button" class="next" aria-label="次へ">→</button></div>` : ""}
+        ${nDraw ? `<span class="hintx">→ スケッチ・検討図 ${nDraw}</span>` : ""}
+      </div>
       <div class="meta">
         <span class="no">${w.no}</span>
         <h3>${esc(w.t)}</h3>
@@ -480,9 +500,28 @@
           ${w.credit ? `<p class="credit">${esc(w.credit)}</p>` : ""}
         </div>
       </div>
-    </article>`).join("") +
+    </article>`;
+  }).join("") +
     `<div class="mini rv">${MINI.map((m) => `<div><b>${esc(m.t)}</b><span>${esc(m.by)}</span><em>${esc(m.em)}</em></div>`).join("")}</div>`;
 
+
+  document.querySelectorAll(".strip-wrap").forEach((wrap) => {
+    const strip = wrap.querySelector(".strip"), cnt = wrap.querySelector(".cnt"), n = strip.children.length;
+    const idx = () => Math.round(strip.scrollLeft / strip.clientWidth);
+    const go = (i) => strip.scrollTo({ left: Math.max(0, Math.min(n - 1, i)) * strip.clientWidth, behavior: reduceMotion ? "auto" : "smooth" });
+    wrap.querySelector(".prev")?.addEventListener("click", () => go(idx() - 1));
+    wrap.querySelector(".next")?.addEventListener("click", () => go(idx() + 1));
+    strip.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight") { go(idx() + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { go(idx() - 1); e.preventDefault(); }
+    });
+    strip.addEventListener("scroll", () => {
+      const i = idx();
+      if (cnt) cnt.textContent = `${i + 1} / ${n}`;
+      wrap.classList.toggle("on-draw", strip.children[i]?.classList.contains("draw"));
+      wrap.classList.toggle("moved", i > 0);
+    }, { passive: true });
+  });
 
   /* ───────────────────── 2b. 建方の記録（工程表で写真を送る） ───────────────────── */
   (() => {
@@ -540,9 +579,6 @@
     });
     show(0);
 
-    // スケッチは見えたときに線を引く
-    const sk = $(".sketch");
-    new IntersectionObserver(([en], ob) => { if (en.isIntersecting) { sk.classList.add("go"); ob.disconnect(); } }, { threshold: 0.4 }).observe(sk);
     // 動きを控える設定では動画を止めておく
     if (reduceMotion) { const v = $(".shake video"); v.removeAttribute("autoplay"); v.pause(); v.controls = true; }
   })();
