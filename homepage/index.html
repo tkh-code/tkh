@@ -40,17 +40,25 @@
       <p class="eyebrow">STRUCTURAL ENGINEERS — TOKYO, HIROO</p>
       <h1><span>力の流れを、</span><span>かたちに<b class="acc">。</b></span></h1>
       <p class="lead">テクトニカは、建築・土木構造物・アート作品の構造設計を行う構造設計事務所です。住宅から公共建築、万博の休憩所、美術館の什器まで。素材とスケールを横断しながら、建築家とともに「構造から考える建築」をつくっています。</p>
-      <p class="hint"><b>TRY →</b> 右の構造体にカーソルを置くと、その位置に荷重がかかります。樹状柱・アーチ・片持ちフィーレンデール・ラーメンを切り替えられます。変形と応力図は、ブラウザ内でその場で解いた解析結果です。</p>
+      <p class="hint"><b>TRY →</b> 右の構造体にカーソルを置くと、その位置に荷重がかかります。樹状柱・アーチ・張弦梁・吊り屋根などの平面架構と、ラチスドーム・立体トラス・HPシェルの空間構造を切り替えられます。変形と応力図は、ブラウザ内でその場で解いた解析結果です。</p>
     </div>
 
     <figure class="lab" aria-label="インタラクティブな骨組の構造解析">
       <div class="lab-head">
         <span class="tag">LIVE FRAME ANALYSIS</span>
-        <div class="seg models" role="group" aria-label="構造モデル">
+        <div class="models" role="group" aria-label="構造形式">
+          <span class="grp">平面</span>
           <button type="button" data-model="tree" class="on">樹状柱</button>
           <button type="button" data-model="arch">アーチ</button>
+          <button type="button" data-model="bstring">張弦梁</button>
+          <button type="button" data-model="truss">トラス</button>
+          <button type="button" data-model="susp">吊り構造</button>
           <button type="button" data-model="box">片持ち</button>
           <button type="button" data-model="rahmen">ラーメン</button>
+          <span class="grp">空間</span>
+          <button type="button" data-model="dome">ラチスドーム</button>
+          <button type="button" data-model="space">立体トラス</button>
+          <button type="button" data-model="hp">HPシェル</button>
         </div>
         <div class="seg" role="group" aria-label="荷重">
           <button type="button" data-load="v" class="on">鉛直荷重 P</button>

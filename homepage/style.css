@@ -152,7 +152,13 @@ h1 b { font-weight: inherit; }
   padding: 10px 12px; border-bottom: 1px solid var(--line);
 }
 .tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; color: var(--ink-2); width: 100%; }
-.models { margin-right: auto; }
+.models { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%; }
+.models .grp { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-3); margin: 0 2px 0 4px; }
+.models .grp + button { margin-left: 0; }
+.models .grp:not(:first-child) { margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--line); }
+.models button { border: 1px solid var(--ink); background: none; cursor: pointer; padding: 2px 7px; font-size: 11.5px; line-height: 1.6; }
+.models button.on { background: var(--ink); color: var(--paper); }
+.lab-head .seg:first-of-type { margin-left: auto; }
 .tag::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--acc); margin-right: 8px; animation: blink 1.6s infinite; vertical-align: 1px; }
 @keyframes blink { 50% { opacity: .2; } }
 .seg { display: inline-flex; border: 1px solid var(--ink); }
