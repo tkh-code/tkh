@@ -290,43 +290,53 @@
         return out;
       };
 
-      // 全体剛性マトリクス（K = Tᵀ k T）
-      const K = new Float64Array(n * n);
+      // 部材ごとの全体座標系の剛性（K = Tᵀ k T）と、断面係数・質量
       els.forEach((e) => {
         const T = Array.from({ length: 12 }, () => new Float64Array(12));
         for (let b = 0; b < 4; b++) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) T[b * 3 + r][b * 3 + c] = e.R[r][c];
         const kT = Array.from({ length: 12 }, (_, r) => { const row = new Float64Array(12); for (let c = 0; c < 12; c++) { let v = 0; for (let t = 0; t < 12; t++) v += e.k[r][t] * T[t][c]; row[c] = v; } return row; });
-        for (let p = 0; p < 12; p++) {
-          const P_ = e.map[p]; if (P_ < 0) continue;
-          for (let q = 0; q < 12; q++) {
-            const Q_ = e.map[q]; if (Q_ < 0) continue;
-            let v = 0; for (let r = 0; r < 12; r++) v += T[r][p] * kT[r][q];
-            K[P_ * n + Q_] += v;
+        e.KG = new Float64Array(144);
+        for (let p = 0; p < 12; p++) for (let q = 0; q < 12; q++) { let v = 0; for (let r = 0; r < 12; r++) v += T[r][p] * kT[r][q]; e.KG[p * 12 + q] = v; }
+        e.Z = (2 * e.I) / Math.sqrt((12 * e.I) / e.A);
+        e.mass = 7.85 * e.A * e.L;
+      });
+      // 組み立てて LU 分解（部分ピボット）。alive で外した部材は除く。不安定なら singular
+      const assemble = (alive) => {
+        const K = new Float64Array(n * n);
+        els.forEach((e, idx) => {
+          if (alive && !alive[idx]) return;
+          for (let p = 0; p < 12; p++) {
+            const P_ = e.map[p]; if (P_ < 0) continue;
+            for (let q = 0; q < 12; q++) { const Q_ = e.map[q]; if (Q_ >= 0) K[P_ * n + Q_] += e.KG[p * 12 + q]; }
+          }
+        });
+        const Kc = alive ? null : Float64Array.from(K);
+        let dmax = 0; for (let i = 0; i < n; i++) dmax = Math.max(dmax, Math.abs(K[i * n + i]));
+        const piv = new Int32Array(n); let singular = false;
+        for (let k = 0; k < n; k++) {
+          let m = k, mv = Math.abs(K[k * n + k]);
+          for (let i = k + 1; i < n; i++) { const v = Math.abs(K[i * n + k]); if (v > mv) { mv = v; m = i; } }
+          if (mv < 1e-9 * dmax) { singular = true; break; }
+          piv[k] = m;
+          if (m !== k) for (let j = 0; j < n; j++) { const t = K[k * n + j]; K[k * n + j] = K[m * n + j]; K[m * n + j] = t; }
+          const d = K[k * n + k];
+          for (let i = k + 1; i < n; i++) {
+            const f = (K[i * n + k] /= d);
+            if (f) for (let j = k + 1; j < n; j++) K[i * n + j] -= f * K[k * n + j];
           }
         }
-      });
-      // LU分解（部分ピボット）を一度だけ行い、荷重ごとに前進・後退代入
-      const piv = new Int32Array(n);
-      for (let k = 0; k < n; k++) {
-        let m = k, mv = Math.abs(K[k * n + k]);
-        for (let i = k + 1; i < n; i++) { const v = Math.abs(K[i * n + k]); if (v > mv) { mv = v; m = i; } }
-        piv[k] = m;
-        if (m !== k) for (let j = 0; j < n; j++) { const t = K[k * n + j]; K[k * n + j] = K[m * n + j]; K[m * n + j] = t; }
-        const d = K[k * n + k];
-        for (let i = k + 1; i < n; i++) {
-          const f = (K[i * n + k] /= d);
-          if (f) for (let j = k + 1; j < n; j++) K[i * n + j] -= f * K[k * n + j];
-        }
-      }
-      const solve = (F) => {
-        const x = Float64Array.from(F);
-        for (let k = 0; k < n; k++) { const m = piv[k]; if (m !== k) { const t = x[k]; x[k] = x[m]; x[m] = t; } }
-        for (let i = 0; i < n; i++) { let s = x[i]; for (let j = 0; j < i; j++) s -= K[i * n + j] * x[j]; x[i] = s; }
-        for (let i = n - 1; i >= 0; i--) { let s = x[i]; for (let j = i + 1; j < n; j++) s -= K[i * n + j] * x[j]; x[i] = s / K[i * n + i]; }
-        return x;
+        const solve = (F) => {
+          const x = Float64Array.from(F);
+          for (let k = 0; k < n; k++) { const m = piv[k]; if (m !== k) { const t = x[k]; x[k] = x[m]; x[m] = t; } }
+          for (let i = 0; i < n; i++) { let s = x[i]; for (let j = 0; j < i; j++) s -= K[i * n + j] * x[j]; x[i] = s; }
+          for (let i = n - 1; i >= 0; i--) { let s = x[i]; for (let j = i + 1; j < n; j++) s -= K[i * n + j] * x[j]; x[i] = s / K[i * n + i]; }
+          return x;
+        };
+        return { solve, Kc, singular };
       };
+      const base = assemble(null), solve = base.solve;
 
-      const md = { pre, nodes, key, els, dof, n, toLocal, space: !!pre.space };
+      const md = { pre, nodes, key, els, dof, n, toLocal, space: !!pre.space, assemble, solve, Kc: base.Kc };
       md.loadNodes = [...new Set(els.filter((e) => e.load).flatMap((e) => [e.i, e.j]))].filter((k) => !nodes[k].sup);
       if (md.space) {
         md.demoNodes = md.loadNodes.slice().sort((a, b) => nodes[a].x - nodes[b].x || nodes[a].z - nodes[b].z);
@@ -337,6 +347,10 @@
         const topY = Math.max(...md.loadNodes.map((k) => nodes[k].y));
         md.demoNodes = md.loadNodes.filter((k) => nodes[k].y === topY).sort((a, b) => nodes[a].x - nodes[b].x);
       }
+      md.mass = new Float64Array(n);
+      const addMass = (k, m) => { for (let d = 0; d < 3; d++) if (dof[k][d] >= 0) md.mass[dof[k][d]] += m; };
+      els.forEach((e) => { addMass(e.i, e.mass / 2); addMass(e.j, e.mass / 2); });
+      md.loadNodes.forEach((k) => addMass(k, 2));
       md.vCase = new Map();
       md.loadNodes.forEach((k) => { const F = new Float64Array(n); F[dof[k][1]] = -P; md.vCase.set(k, solve(F)); });
       const F = new Float64Array(n);
@@ -374,6 +388,65 @@
       return { M, Q, N, d };
     }
 
+    // 検定比（軸力と曲げの組み合わせ）。鋼材 F=235N/mm²
+    const FY = 235000;
+    const util = (md, u, e) => { const r = forces(md, u, e); return Math.abs(r.N) / (e.A * FY) + r.Mmax / (e.Z * FY); };
+
+    // 固有値解析：サブスペース法で低次の4モードを求める（K φ = ω² M φ）
+    function modes(md) {
+      if (md.modes) return md.modes;
+      const { n, solve, Kc, mass } = md, p = Math.min(6, n);
+      let X = Array.from({ length: p }, (_, j) => { const x = new Float64Array(n); for (let i = 0; i < n; i++) x[i] = mass[i] ? Math.sin(i * (j + 1) * 0.37 + j * 1.3) + 0.05 : 0; return x; });
+      let lam = [];
+      const dot = (a, b, w) => { let s = 0; for (let i = 0; i < n; i++) s += a[i] * b[i] * (w ? w[i] : 1); return s; };
+      for (let it = 0; it < 28; it++) {
+        const Y = X.map((x) => solve(x.map((v, i) => v * mass[i])));
+        const KY = Y.map((y) => { const r = new Float64Array(n); for (let i = 0; i < n; i++) { let s = 0; const row = i * n; for (let c = 0; c < n; c++) s += Kc[row + c] * y[c]; r[i] = s; } return r; });
+        const Kr = Y.map((ya) => KY.map((kb) => dot(ya, kb)));
+        const Mr = Y.map((ya) => Y.map((yb) => dot(ya, yb, mass)));
+        const { vals, vecs } = geig(Kr, Mr);
+        X = vecs.map((q) => { const x = new Float64Array(n); q.forEach((c, a) => { for (let i = 0; i < n; i++) x[i] += c * Y[a][i]; }); return x; });
+        lam = vals;
+      }
+      const ref = md.ref.v.d;
+      md.modes = lam.slice(0, 4).map((l, k) => {
+        const x = X[k]; let mx = 0;
+        md.nodes.forEach((_, nd) => { const [a, b, c] = md.dof[nd]; mx = Math.max(mx, Math.hypot(a < 0 ? 0 : x[a], b < 0 ? 0 : x[b], c < 0 ? 0 : x[c])); });
+        const u = x.map((v) => (v / mx) * ref);
+        return { T: (2 * Math.PI) / Math.sqrt(Math.max(l, 1e-9)), u, ref: peaks(md, u) };
+      });
+      return md.modes;
+    }
+    // 小さな一般化固有値問題（コレスキー分解＋ヤコビ法）
+    function geig(A, B) {
+      const p = A.length, L = Array.from({ length: p }, () => new Float64Array(p));
+      for (let i = 0; i < p; i++) for (let j = 0; j <= i; j++) {
+        let s = B[i][j]; for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
+        L[i][j] = i === j ? Math.sqrt(Math.max(s, 1e-30)) : s / L[j][j];
+      }
+      const inv = Array.from({ length: p }, () => new Float64Array(p));
+      for (let c = 0; c < p; c++) for (let i = 0; i < p; i++) { let s = i === c ? 1 : 0; for (let k = 0; k < i; k++) s -= L[i][k] * inv[k][c]; inv[i][c] = s / L[i][i]; }
+      const C = Array.from({ length: p }, (_, i) => Float64Array.from({ length: p }, (_, j) => { let s = 0; for (let a = 0; a < p; a++) for (let b = 0; b < p; b++) s += inv[i][a] * A[a][b] * inv[j][b]; return s; }));
+      const V = Array.from({ length: p }, (_, i) => Float64Array.from({ length: p }, (_, j) => (i === j ? 1 : 0)));
+      for (let sweep = 0; sweep < 40; sweep++) {
+        let off = 0;
+        for (let i = 0; i < p; i++) for (let j = i + 1; j < p; j++) off += C[i][j] ** 2;
+        if (off < 1e-20) break;
+        for (let i = 0; i < p; i++) for (let j = i + 1; j < p; j++) {
+          if (Math.abs(C[i][j]) < 1e-30) continue;
+          const th = 0.5 * Math.atan2(2 * C[i][j], C[j][j] - C[i][i]), c = Math.cos(th), s = Math.sin(th);
+          for (let k = 0; k < p; k++) { const a = C[k][i], b = C[k][j]; C[k][i] = c * a - s * b; C[k][j] = s * a + c * b; }
+          for (let k = 0; k < p; k++) { const a = C[i][k], b = C[j][k]; C[i][k] = c * a - s * b; C[j][k] = s * a + c * b; }
+          for (let k = 0; k < p; k++) { const a = V[k][i], b = V[k][j]; V[k][i] = c * a - s * b; V[k][j] = s * a + c * b; }
+        }
+      }
+      const order = [...Array(p).keys()].sort((a, b) => C[a][a] - C[b][b]);
+      return {
+        vals: order.map((i) => C[i][i]),
+        vecs: order.map((i) => Float64Array.from({ length: p }, (_, r) => { let s = 0; for (let k = 0; k < p; k++) s += inv[k][r] * V[k][i]; return s; })),
+      };
+    }
+
     const PITCH = 0.5;
     const models = {};
     const getModel = (id) => (models[id] ||= build(PRESETS[id]));
@@ -382,12 +455,14 @@
     const st = {
       md: null, id: "tree", load: "v", dia: "M", target: 0, hover: false, t0: performance.now(),
       u: null, visible: true, W: 0, H: 0, dpr: 1, k: 1, ox: 0, oy: 0, col: {}, yaw: 0.6, yawT: performance.now(),
+      mode: 0, drag: null, brk: null,
     };
     const setModel = (id) => {
       st.id = id; st.md = getModel(id);
       st.u = new Float64Array(st.md.n);
       st.target = st.md.demoNodes[Math.floor(st.md.demoNodes.length * 0.3)];
-      st.t0 = performance.now();
+      st.t0 = performance.now(); st.brk = null; st.drag = null; st.mode = 0;
+      if (st.load === "m") modes(st.md);
       document.querySelectorAll("[data-model]").forEach((b) => b.classList.toggle("on", b.dataset.model === id));
       resize();
       if (reduceMotion) still();
@@ -408,9 +483,9 @@
       if (st.md.space) {
         const span = Math.cos(PITCH) + Math.sin(PITCH);
         st.k = Math.min((r.width * 0.86) / (2 * st.md.rad), (r.height * 0.8) / (span * 2 * st.md.rad) * 1.25);
-        st.ox = r.width / 2; st.oy = r.height * 0.5;
+        st.ox = r.width / 2; st.oy = r.height * 0.54;
       } else {
-        const pl = small ? 22 : 48, pr = small ? 42 : 66, pt = small ? 64 : 84, pb = small ? 46 : 58;
+        const pl = small ? 22 : 48, pr = small ? 42 : 66, pt = small ? 84 : 108, pb = small ? 46 : 58;
         const { x0, x1, y0, y1 } = st.md.box, wx = x1 - x0, wy = y1 - y0;
         st.k = Math.min((r.width - pl - pr) / wx, (r.height - pt - pb) / wy);
         st.ox = pl + ((r.width - pl - pr) - wx * st.k) / 2 - x0 * st.k;
@@ -428,26 +503,92 @@
     };
     const still = () => { st.u = Float64Array.from(st.load === "v" ? st.md.vCase.get(st.target) : st.md.hCase); draw(performance.now()); };
 
-    // 入力：一番近い載荷点に荷重を移す
-    const pick = (ev) => {
-      const r = canvas.getBoundingClientRect();
-      const px = ev.clientX - r.left, py = ev.clientY - r.top, { nodes } = st.md;
-      let best = st.target, bd = Infinity;
-      st.md.loadNodes.forEach((k) => {
+    // 入力：ホバーで載荷点を移す／ドラッグで引っぱる／クリックで次のモード・破壊開始
+    const ptr = (ev) => { const r = canvas.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+    const nearest = (px, py, list) => {
+      const { nodes } = st.md; let best = list[0], bd = Infinity;
+      list.forEach((k) => {
         const [X, Y] = proj(nodes[k].x, nodes[k].y, nodes[k].z);
         const d = (X - px) ** 2 + ((Y - py) * (st.md.space ? 1 : 1.6)) ** 2;
         if (d < bd) { bd = d; best = k; }
       });
-      st.target = best; st.hover = true;
-      if (st.load !== "v") setLoad("v");
-      if (reduceMotion) still();
+      return best;
     };
-    canvas.addEventListener("pointermove", pick);
-    canvas.addEventListener("pointerdown", pick);
-    canvas.addEventListener("pointerleave", () => { st.hover = false; st.t0 = performance.now(); });
+    const freeNodes = (md) => (md.free ||= md.nodes.map((_, k) => k).filter((k) => md.dof[k][1] >= 0));
+    // 引っぱる点の柔性（単位力に対する変位）を求めておく
+    const dragBasis = (md, k) => {
+      md.dragCache ||= new Map();
+      if (!md.dragCache.has(k)) {
+        const unit = (d) => { if (md.dof[k][d] < 0) return null; const F = new Float64Array(md.n); F[md.dof[k][d]] = 1; return md.solve(F); };
+        md.dragCache.set(k, { ux: md.space ? null : unit(0), uy: unit(1) });
+      }
+      return md.dragCache.get(k);
+    };
+    canvas.addEventListener("pointermove", (ev) => {
+      const [px, py] = ptr(ev);
+      if (st.drag) { st.drag.px = px; st.drag.py = py; return; }
+      st.hover = true;
+      if (st.load === "v") { st.target = nearest(px, py, st.md.loadNodes); if (reduceMotion) still(); }
+    });
+    canvas.addEventListener("pointerdown", (ev) => {
+      const [px, py] = ptr(ev);
+      st.hover = true;
+      if (st.load === "m") { st.mode = (st.mode + 1) % modes(st.md).length; st.t0 = performance.now(); return; }
+      if (st.load === "b") { if (!st.brk || st.brk.phase === "done") startBreak(nearest(px, py, st.md.loadNodes)); return; }
+      if (st.load !== "v") return;
+      const k = nearest(px, py, freeNodes(st.md));
+      st.drag = { k, x0: px, y0: py, px, py, basis: dragBasis(st.md, k), F: [0, 0] };
+      try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* 捕捉できなくても続ける */ }
+    });
+    const endDrag = () => { if (st.drag) { st.target = st.md.loadNodes.includes(st.drag.k) ? st.drag.k : st.target; st.drag = null; } };
+    canvas.addEventListener("pointerup", endDrag);
+    canvas.addEventListener("pointercancel", endDrag);
+    canvas.addEventListener("pointerleave", () => { if (!st.drag) { st.hover = false; st.t0 = performance.now(); } });
+
+    // 壊してみる：選んだ点の荷重を増やし、検定比が1を超えた部材から破断させて組み直す
+    function startBreak(k) {
+      const md = st.md, now = performance.now();
+      st.brk = { k, alive: new Uint8Array(md.els.length).fill(1), P: 0, broken: [], phase: "ramp", last: now, wait: 0.6 };
+      breakSolve(md.solve);
+    }
+    function breakSolve(solve) {
+      const b = st.brk, md = st.md, F = new Float64Array(md.n);
+      F[md.dof[b.k][1]] = -1;
+      b.unit = solve(F);
+      let mu = 0, me = -1;
+      md.els.forEach((e, i) => { if (!b.alive[i]) return; const v = util(md, b.unit, e); if (v > mu) { mu = v; me = i; } });
+      b.nextP = 1 / mu; b.nextEl = me;
+      if (!b.rate) { b.rate = b.nextP / 2.2; b.ref = peaks(md, b.unit.map((v) => v * b.nextP)); }
+    }
+    function breakU(t) {
+      const b = st.brk, md = st.md;
+      const dt = Math.min(0.1, (t - b.last) / 1000); b.last = t;
+      if (b.phase === "ramp") {
+        if (b.wait > 0) b.wait -= dt;
+        else {
+          // 組み直した直後にすでに限界を超えている部材は、荷重を下げずに連鎖して破断させる
+          b.P = Math.max(b.P, Math.min(b.P + b.rate * dt, b.nextP));
+          if (b.P >= b.nextP) {
+            b.alive[b.nextEl] = 0; b.broken.push({ el: b.nextEl, P: b.P, t });
+            b.wait = 0.3;
+            const asm = md.assemble(b.alive);
+            if (asm.singular || b.broken.length >= 40) { b.phase = "collapse"; b.tc = t; b.Pu = b.P; }
+            else {
+              const prev = b.unit; breakSolve(asm.solve);
+              let dm = 0; b.unit.forEach((v) => { dm = Math.max(dm, Math.abs(v)); });
+              if (dm * b.P > 40 * b.ref.d) { b.unit = prev; b.phase = "collapse"; b.tc = t; b.Pu = b.P; }
+            }
+          }
+        }
+      }
+      if (b.phase === "collapse" && t - b.tc > 2600) b.phase = "done";
+      const fall = b.phase === "ramp" ? 0 : Math.min(2.6, (t - b.tc) / 1000);
+      return { u: b.unit, s: b.P * (1 + 2.5 * fall * fall) };
+    }
 
     const setLoad = (l) => {
-      st.load = l;
+      st.load = l; st.brk = null; st.drag = null; st.mode = 0; st.t0 = performance.now();
+      if (l === "m") modes(st.md);
       document.querySelectorAll("[data-load]").forEach((b) => b.classList.toggle("on", b.dataset.load === l));
       if (reduceMotion) still();
     };
@@ -460,8 +601,37 @@
     }));
 
     // 目標の変位（時間で動かす：自動デモ・地震の揺れ）
+    const ampOf = (md) => (md.space ? 0.06 * md.rad : 0.05 * (md.box.x1 - md.box.x0)) / (refNow().d || 1);
+    const refNow = () => {
+      const md = st.md;
+      if (st.load === "m") return modes(md)[st.mode].ref;
+      if (st.load === "b") return st.brk ? st.brk.ref : md.ref.v;
+      return md.ref[st.load];
+    };
     const targetU = (t) => {
       const md = st.md;
+      if (st.drag) {
+        // 指の動き（画面）→ 変位（実寸）→ 必要な力
+        const d = st.drag, amp = ampOf(md), ex = (d.px - d.x0) / st.k / amp, ey = -(d.py - d.y0) / st.k / amp;
+        const { ux, uy } = d.basis, iy = md.dof[d.k][1], ix = md.dof[d.k][0];
+        let Fx = 0, Fy = 0;
+        if (ux && uy) {
+          const a = ux[ix], b = uy[ix], c = ux[iy], e = uy[iy], det = a * e - b * c;
+          Fx = (e * ex - b * ey) / det; Fy = (-c * ex + a * ey) / det;
+        } else if (uy) Fy = (ey / Math.cos(PITCH)) / uy[iy];
+        const mag = Math.hypot(Fx, Fy), cap = 3000;
+        if (mag > cap) { Fx *= cap / mag; Fy *= cap / mag; }
+        d.F = [Fx, Fy];
+        const u = new Float64Array(md.n);
+        for (let i = 0; i < md.n; i++) u[i] = (ux ? ux[i] * Fx : 0) + uy[i] * Fy;
+        return { u, s: 1 };
+      }
+      if (st.load === "m") {
+        const ms = modes(md), M = ms[st.mode];
+        const per = Math.max(0.5, 1.8 * (M.T / ms[0].T));
+        return { u: M.u, s: reduceMotion ? 1 : Math.sin(((t - st.t0) / 1000) * (2 * Math.PI / per)) };
+      }
+      if (st.load === "b") return st.brk ? breakU(t) : { u: new Float64Array(md.n), s: 0 };
       if (st.load === "h") return { u: md.hCase, s: reduceMotion ? 1 : Math.sin((t - st.t0) / 1000 * Math.PI * 1.25) };
       if (!st.hover && !reduceMotion) {
         const ph = ((t - st.t0) / 7000) % 2, f = ph < 1 ? ph : 2 - ph;
@@ -478,6 +648,28 @@
       return `${ax ? ax[1] : `x=${fmt(nd.x)}m`}${lv ? " " + lv[1] : ""}`;
     };
     const ro = { load: $("#ro-load"), m: $("#ro-m"), d: $("#ro-d"), s: $("#ro-s") };
+    const roL = [...document.querySelectorAll(".readout em")];
+
+    // キャンバス左上のメッセージ
+    function message(t) {
+      const { col } = st, small = st.W < 520;
+      let main = "", sub = "", hot = false;
+      if (st.load === "v") { main = st.drag ? `F = ${fmt(Math.hypot(...st.drag.F), 0)} kN で引っぱっています` : "ドラッグすると、その点を引っぱれます"; sub = st.drag ? "指を離すと戻ります" : "カーソルを置くと、その位置に P=100kN"; hot = !!st.drag; }
+      if (st.load === "h") { main = "地震力で左右に揺らしています"; sub = "Ai分布に近い水平力"; }
+      if (st.load === "m") { const M = modes(st.md)[st.mode]; main = `${st.mode + 1}次モード　T = ${fmt(M.T, 3)} s`; sub = "クリックで次のモード →"; }
+      if (st.load === "b") {
+        const b = st.brk;
+        if (!b) { main = "どこに載せて壊しますか？"; sub = "構造をクリックすると、その点の荷重を増やしていきます"; hot = true; }
+        else if (b.phase === "ramp") { main = `P = ${fmt(b.P, 0)} kN`; sub = b.broken.length ? `部材が ${b.broken.length} 本破断。力の流れが組み変わっています` : "検定比が 1 を超えた部材から破断します"; hot = true; }
+        else { main = `崩壊！　Pu = ${fmt(b.Pu, 0)} kN`; sub = b.phase === "done" ? "クリックでもう一度" : `${b.broken.length} 本の部材が破断しました`; hot = true; }
+      }
+      ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.font = `600 ${small ? 12 : 14}px "IBM Plex Mono", "Noto Sans JP", monospace`;
+      ctx.fillStyle = hot ? col.acc : col.ink; ctx.fillText(main, 14, small ? 22 : 26);
+      ctx.font = `400 ${small ? 9.5 : 11}px "Noto Sans JP", monospace`;
+      ctx.fillStyle = col.ink3; ctx.fillText(sub, 14, small ? 38 : 44);
+      ctx.textBaseline = "middle";
+    }
     let roLast = "";
 
     const arrow = (ax, ay, bx, by) => {
@@ -494,19 +686,35 @@
       // ばねのように追従させる
       const a = reduceMotion ? 1 : 0.18;
       for (let i = 0; i < md.n; i++) st.u[i] += (tu[i] * s - st.u[i]) * a;
-      if (md.space && !st.hover && !reduceMotion) st.yaw += (t - st.yawT) * 0.00012;
+      if (md.space && !st.hover && !st.drag && !reduceMotion) st.yaw += (t - st.yawT) * 0.00012;
       st.yawT = t;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, st.W, st.H);
       ctx.lineCap = "round"; ctx.lineJoin = "round";
       const res = md.space ? draw3(t, s) : draw2(t, s);
+      message(t);
 
       // 数値表示（実際の値）
-      const pk = peaks(md, st.load === "v" ? md.vCase.get(st.target) : md.hCase);
-      const roTxt = [res.loadTxt, `${fmt(pk.M)} kN·m`, `${fmt(pk.d * 1000, 2)} mm`, `変形 ×${Math.round(res.amp)}`];
-      const joined = roTxt.join("|");
-      if (joined !== roLast) { roLast = joined; ro.load.textContent = roTxt[0]; ro.m.textContent = roTxt[1]; ro.d.textContent = roTxt[2]; ro.s.textContent = roTxt[3]; }
+      const uNow = tu.map((v) => v * (st.load === "m" ? 1 : s));
+      const pk = peaks(md, uNow);
+      let lab = ["LOAD", "M<sub>max</sub>", "δ<sub>max</sub>", "SCALE"];
+      let roTxt = [res.loadTxt, `${fmt(pk.M)} kN·m`, `${fmt(pk.d * 1000, 2)} mm`, `変形 ×${Math.round(res.amp)}`];
+      if (st.load === "m") {
+        const M = modes(md)[st.mode];
+        lab = ["MODE", "固有周期 T", "振動数 f", "SCALE"];
+        roTxt = [`${st.mode + 1}次モード`, `${fmt(M.T, 3)} s`, `${fmt(1 / M.T, 2)} Hz`, "形のみ（振幅は任意）"];
+      } else if (st.load === "b") {
+        const b = st.brk;
+        lab = ["LOAD", "破断した部材", "δ<sub>max</sub>", "崩壊荷重 P<sub>u</sub>"];
+        roTxt = [res.loadTxt, b ? `${b.broken.length} 本` : "—", !b ? "—" : b.phase === "ramp" ? `${fmt(pk.d * 1000, 1)} mm` : "∞（崩壊）", b && b.Pu ? `${fmt(b.Pu, 0)} kN` : "—"];
+      }
+      const joined = roTxt.join("|") + lab.join("|");
+      if (joined !== roLast) {
+        roLast = joined;
+        ro.load.textContent = roTxt[0]; ro.m.textContent = roTxt[1]; ro.d.textContent = roTxt[2]; ro.s.textContent = roTxt[3];
+        roL.forEach((el, i) => { el.innerHTML = lab[i]; });
+      }
     }
 
     const disp = (k, amp) => {
@@ -514,12 +722,60 @@
       return [a1 < 0 ? 0 : u[a1] * amp, b1 < 0 ? 0 : u[b1] * amp, c1 < 0 ? 0 : u[c1] * amp];
     };
 
+    // 色を混ぜる（#rrggbb どうし）
+    const mix = (a, b, t) => {
+      const p = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+      if (!/^#[0-9a-f]{6}$/i.test(a) || !/^#[0-9a-f]{6}$/i.test(b)) return t > 0.5 ? b : a;
+      const A = p(a), B = p(b);
+      return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(",")})`;
+    };
+    // 破断した部材：赤い破線で落ちていく
+    function drawBroken(brk, P2, amp) {
+      const { col, md } = st, now = performance.now();
+      ctx.setLineDash([6, 4]); ctx.strokeStyle = col.acc; ctx.lineWidth = 2.4;
+      brk.broken.forEach(({ el, t }) => {
+        const e = md.els[el], tb = (now - t) / 1000;
+        if (tb > 1.6) return;
+        const A = md.nodes[e.i], B = md.nodes[e.j], da = disp(e.i, amp), db = disp(e.j, amp);
+        const pa = P2(A.x + da[0], A.y + da[1], A.z + da[2]), pb = P2(B.x + db[0], B.y + db[1], B.z + db[2]);
+        const dy = 260 * tb * tb, rot = tb * 0.8;
+        const mx = (pa[0] + pb[0]) / 2, my = (pa[1] + pb[1]) / 2 + dy, hx = (pb[0] - pa[0]) / 2, hy = (pb[1] - pa[1]) / 2;
+        const c = Math.cos(rot), s = Math.sin(rot);
+        ctx.globalAlpha = Math.max(0, 1 - tb / 1.6);
+        ctx.beginPath(); ctx.moveTo(mx - (hx * c - hy * s), my - (hx * s + hy * c)); ctx.lineTo(mx + (hx * c - hy * s), my + (hx * s + hy * c)); ctx.stroke();
+      });
+      ctx.globalAlpha = 1; ctx.setLineDash([]);
+    }
+    // 引っぱる力・壊す荷重の矢印。該当しないときは null
+    function specialLoad(at) {
+      const { md } = st;
+      if (st.drag) {
+        const [X, Y] = at(st.drag.k), [Fx, Fy] = st.drag.F, m = Math.hypot(Fx, Fy);
+        if (m > 0.5) {
+          const dx = Fx / m, dy = -Fy / m, L = 26 + Math.min(40, m / 15);
+          arrow(X - dx * L, Y - dy * L, X - dx * 4, Y - dy * 4);
+          ctx.textAlign = "center"; ctx.fillText(`F=${fmt(m, 0)}kN`, X - dx * (L + 16), Y - dy * (L + 16));
+        }
+        ctx.beginPath(); ctx.arc(X, Y, 6, 0, Math.PI * 2); ctx.stroke();
+        return `F=${fmt(m, 0)}kN @ ${where(md.nodes[st.drag.k])}`;
+      }
+      if (st.load === "m") return "";
+      if (st.load === "b") {
+        if (!st.brk) return "—";
+        const [X, Y] = at(st.brk.k), len = 30 + Math.min(50, st.brk.P / (st.brk.rate * 0.12));
+        arrow(X, Y - len - 4, X, Y - 4);
+        ctx.textAlign = "center"; ctx.fillText(`P=${fmt(st.brk.P, 0)}kN`, X, Y - len - 14);
+        return `P=${fmt(st.brk.P, 0)}kN @ ${where(md.nodes[st.brk.k])}`;
+      }
+      return null;
+    }
+
     /* 平面の架構：正面図に応力図を重ねる */
     function draw2(t, s) {
       const { col, md } = st;
       const { nodes, els, pre } = md;
-      const u = st.u, R = md.ref[st.load], { x0, x1, y1 } = md.box, span = x1 - x0;
-      const small = st.W < 520;
+      const u = st.u, R = refNow(), { x0, x1, y1 } = md.box, span = x1 - x0;
+      const small = st.W < 520, brk = st.load === "b" ? st.brk : null;
       const sx = (x) => st.ox + x * st.k, sy = (y) => st.oy - y * st.k;
 
       // 通り芯（一点鎖線）と符号
@@ -567,12 +823,13 @@
       ctx.strokeStyle = col.line; ctx.lineWidth = 2;
       els.forEach((e) => { ctx.beginPath(); ctx.moveTo(sx(nodes[e.i].x), sy(nodes[e.i].y)); ctx.lineTo(sx(nodes[e.j].x), sy(nodes[e.j].y)); ctx.stroke(); });
 
-      // 応力図（引張側に描く）
+      // 応力図（引張側に描く）。壊してみるでは描かない
       const refV = R[st.dia] || 1;
+      const elsDia = brk ? [] : els;
       const sc = (st.dia === "M" ? 0.13 : 0.08) * span / refV;
       let peak = { v: 0 };
       ctx.fillStyle = col.accSoft; ctx.strokeStyle = col.acc; ctx.lineWidth = 1.3;
-      els.forEach((e) => {
+      elsDia.forEach((e) => {
         const r = forces(md, u, e), A = nodes[e.i], B = nodes[e.j];
         const nx = e.R[1][0], ny = e.R[1][1];
         let vi, vj, sign;
@@ -588,13 +845,19 @@
         });
       });
 
-      // 変形（倍率をかけて誇張表示）
-      const amp = (0.05 * span) / (R.d || 1);
+      // 変形（倍率をかけて誇張表示）。壊してみるでは検定比で色を付け、破断した部材は落とす
+      const amp = ampOf(md);
       ctx.strokeStyle = col.ink; ctx.lineWidth = 2.4;
-      els.forEach((e) => {
+      els.forEach((e, idx) => {
         const A = nodes[e.i], B = nodes[e.j], da = disp(e.i, amp), db = disp(e.j, amp);
+        if (brk) {
+          if (!brk.alive[idx]) return;
+          const r = Math.min(1, util(md, u, e));
+          ctx.strokeStyle = r > 0.5 ? mix(col.ink, col.acc, (r - 0.5) * 2) : col.ink; ctx.lineWidth = 2 + 3 * r * r;
+        }
         ctx.beginPath(); ctx.moveTo(sx(A.x + da[0]), sy(A.y + da[1])); ctx.lineTo(sx(B.x + db[0]), sy(B.y + db[1])); ctx.stroke();
       });
+      if (brk) drawBroken(brk, (x, y, z) => [sx(x), sy(y)], amp);
 
       // 最大値のラベル
       if (Math.abs(peak.v) > refV * 0.02) {
@@ -610,8 +873,10 @@
       // 荷重の矢印
       ctx.strokeStyle = col.acc; ctx.fillStyle = col.acc; ctx.lineWidth = 2.2;
       ctx.font = `600 ${small ? 10 : 12}px "IBM Plex Mono", monospace`;
-      let loadTxt;
-      if (st.load === "v") {
+      let loadTxt = "";
+      const spec = specialLoad((k) => { const nd = nodes[k], d = disp(k, amp); return [sx(nd.x + d[0]), sy(nd.y + d[1])]; });
+      if (spec !== null) loadTxt = spec;
+      else if (st.load === "v") {
         const nd = nodes[st.target], d = disp(st.target, amp), X = sx(nd.x + d[0]), Y = sy(nd.y + d[1]) - 4;
         arrow(X, Y - 46, X, Y);
         ctx.textAlign = "center"; ctx.fillText(`P=${P}kN`, X, Y - 56);
@@ -632,8 +897,8 @@
     function draw3(t, s) {
       const { col, md } = st;
       const { nodes, els } = md;
-      const u = st.u, R = md.ref[st.load], small = st.W < 520;
-      const amp = (0.06 * md.rad) / (R.d || 1);
+      const u = st.u, R = refNow(), small = st.W < 520, brk = st.load === "b" ? st.brk : null;
+      const amp = ampOf(md);
       const refV = R[st.dia] || 1;
 
       // 地面のグリッド
@@ -647,16 +912,17 @@
       }
 
       // 部材（奥から順に描く）
-      const list = els.map((e) => {
+      const list = els.filter((_, idx) => !brk || brk.alive[idx]).map((e) => {
         const A = nodes[e.i], B = nodes[e.j], da = disp(e.i, amp), db = disp(e.j, amp);
         const pa = proj(A.x + da[0], A.y + da[1], A.z + da[2]), pb = proj(B.x + db[0], B.y + db[1], B.z + db[2]);
+        if (brk) return { e, pa, pb, v: Math.min(1, util(md, u, e)), d: (pa[2] + pb[2]) / 2, util: true };
         const r = forces(md, u, e), v = st.dia === "M" ? r.Mmax : st.dia === "Q" ? Math.abs(r.Q) : r.N;
         return { e, pa, pb, v, d: (pa[2] + pb[2]) / 2 };
       }).sort((a, b) => b.d - a.d);
       const dmax = md.rad;
       let peak = null;
-      list.forEach(({ pa, pb, v, d }) => {
-        const f = Math.min(1, Math.abs(v) / refV);
+      list.forEach(({ pa, pb, v, d, util: isU }) => {
+        const f = isU ? (v > 0.3 ? (v - 0.3) / 0.7 : 0) : Math.min(1, Math.abs(v) / refV);
         const fade = 0.55 + 0.45 * (1 - (d + dmax) / (2 * dmax));
         ctx.globalAlpha = fade;
         ctx.strokeStyle = col.line; ctx.lineWidth = 1;
@@ -667,9 +933,10 @@
           ctx.lineWidth = 1 + 3.2 * f;
           ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
         }
-        if (!peak || Math.abs(v) > Math.abs(peak.v)) peak = { v, x: (pa[0] + pb[0]) / 2, y: (pa[1] + pb[1]) / 2 };
+        if (!isU && (!peak || Math.abs(v) > Math.abs(peak.v))) peak = { v, x: (pa[0] + pb[0]) / 2, y: (pa[1] + pb[1]) / 2 };
       });
       ctx.globalAlpha = 1;
+      if (brk) drawBroken(brk, proj, amp);
 
       // 支点
       ctx.strokeStyle = col.ink; ctx.lineWidth = 1;
@@ -690,20 +957,22 @@
 
       // 凡例
       ctx.font = `500 ${small ? 9 : 10.5}px "IBM Plex Mono", monospace`; ctx.textAlign = "left";
-      const lg = st.dia === "N" ? [[col.acc, "引張"], [col.blue, "圧縮"]] : [[col.acc, st.dia === "M" ? "曲げモーメントの大きさ" : "せん断力の大きさ"]];
+      const lg = brk ? [[col.acc, "検定比（太く赤いほど限界に近い）"]] : st.dia === "N" ? [[col.acc, "引張"], [col.blue, "圧縮"]] : [[col.acc, st.dia === "M" ? "曲げモーメントの大きさ" : "せん断力の大きさ"]];
       lg.forEach(([c, l], i) => {
         const y = st.H - 16 - i * 16;
         ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(14, y); ctx.lineTo(34, y); ctx.stroke();
         ctx.fillStyle = col.ink2; ctx.fillText(l, 40, y);
       });
       ctx.textAlign = "right"; ctx.fillStyle = col.ink3;
-      ctx.fillText(st.hover ? "荷重を移動中" : "ゆっくり回転中・カーソルで載荷", st.W - 12, st.H - 16);
+      ctx.fillText(st.hover || st.drag ? "回転を止めています" : "ゆっくり回転中", st.W - 12, st.H - 16);
 
       // 荷重の矢印
       ctx.strokeStyle = col.acc; ctx.fillStyle = col.acc; ctx.lineWidth = 2.2; ctx.textAlign = "center";
       ctx.font = `600 ${small ? 10 : 12}px "IBM Plex Mono", monospace`;
-      let loadTxt;
-      if (st.load === "v") {
+      let loadTxt = "";
+      const spec = specialLoad((k) => { const nd = nodes[k], d = disp(k, amp); return proj(nd.x + d[0], nd.y + d[1], nd.z + d[2]); });
+      if (spec !== null) loadTxt = spec;
+      else if (st.load === "v") {
         const nd = nodes[st.target], d = disp(st.target, amp), [X, Y] = proj(nd.x + d[0], nd.y + d[1], nd.z + d[2]);
         arrow(X, Y - 46, X, Y - 4);
         ctx.fillText(`P=${P}kN`, X, Y - 56);

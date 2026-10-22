@@ -168,6 +168,8 @@ h1 b { font-weight: inherit; }
 }
 .seg button + button { border-left: 1px solid var(--ink); }
 .seg button.on { background: var(--ink); color: var(--paper); }
+.seg button.hot:not(.on) { color: var(--acc); }
+.seg button.hot.on { background: var(--acc); }
 #frame { width: 100%; aspect-ratio: 2 / 1; display: block; touch-action: pan-y; cursor: crosshair; }
 .readout {
   display: grid; grid-template-columns: repeat(4, 1fr);
