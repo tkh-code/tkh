@@ -45,121 +45,151 @@
     const L2 = (x1, y1, x2, y2) => [[x1, y1, 0], [x2, y2, 0]];
 
     /* ── 構造モデル ──
-     * build(): [点列[x,y,z], 分割長さ, 断面, 載荷できるか]
+     * params: [キー, 名前, 最小, 最大, 刻み, 初期値, 単位]。this.p に今の値が入る
+     * build(): [点列[x,y,z], 分割長さ, 断面, 載荷できるか]。axes・levels・dims・lat もここで決める
      * sup: (x,y,z) => "fix" | "pin" | "roller" | null
-     * lat: 地震力（x方向） [x, y, z, Q]
+     * lat: 地震力（x方向） [x, y, z, Q] または (nodes) => [[節点, Q]]
      */
+    const near = (a, b) => Math.abs(a - b) < 1e-6;
+    const uniq = (xs) => [...new Set(xs.map((v) => +v.toFixed(3)))].sort((a, b) => a - b);
+    const parab = (x, L, f) => f * (1 - ((x - L / 2) / (L / 2)) ** 2);
+    const XN = (i) => `X${i + 1}`;
     const PRESETS = {
       /* 平面の架構 */
       tree: {
+        params: [["L", "全長", 12, 36, 1, 24, "m"], ["H", "高さ", 4, 10, 0.5, 7, "m"], ["T", "幹の高さ", 1, 6, 0.2, 3.2, "m"], ["S", "枝の広がり", 1, 6, 0.5, 4, "m"], ["N", "樹の数", 1, 3, 1, 2, "本"]],
         build() {
-          const m = [], keys = [0, 2, 6, 10, 14, 18, 22, 24];
-          for (let i = 0; i < keys.length - 1; i++) m.push([L2(keys[i], 7, keys[i + 1], 7), 0.5, SEC.roof, true]);
-          [6, 18].forEach((x) => {
-            m.push([L2(x, 0, x, 3.2), 0.8, SEC.trunk]);
-            [-4, 0, 4].forEach((d) => m.push([L2(x, 3.2, x + d, 7), 0.8, SEC.branch]));
+          const { L, H, N, S } = this.p, T = Math.min(this.p.T, H - 1), m = [];
+          const xs = Array.from({ length: N }, (_, i) => +(L * (2 * i + 1) / (2 * N)).toFixed(3));
+          const tips = xs.flatMap((x) => [-S, 0, S].map((d) => Math.min(L, Math.max(0, x + d))));
+          const keys = uniq([0, L, ...tips]);
+          for (let i = 0; i < keys.length - 1; i++) m.push([L2(keys[i], H, keys[i + 1], H), 0.5, SEC.roof, true]);
+          xs.forEach((x) => {
+            m.push([L2(x, 0, x, T), 0.8, SEC.trunk]);
+            uniq([-S, 0, S].map((d) => Math.min(L, Math.max(0, x + d)))).forEach((tx) => m.push([L2(x, T, tx, H), 0.8, SEC.branch]));
           });
+          this.axes = xs.map((x, i) => [x, XN(i)]); this.levels = [[0, "GL"], [H, "RFL"]]; this.dims = uniq([0, ...xs, L]);
+          this.lat = uniq([0, ...xs, L]).map((x) => [x, H, 0, 90 / (N + 2)]);
           return m;
         },
         sup: (x, y) => (y === 0 ? "fix" : null),
-        axes: [[6, "X1"], [18, "X2"]], levels: [[0, "GL"], [7, "RFL"]], dims: [0, 6, 18, 24],
-        lat: [[0, 7, 0, 30], [12, 7, 0, 30], [24, 7, 0, 30]],
       },
       arch: {
+        params: [["L", "スパン", 16, 48, 2, 32, "m"], ["f", "ライズ", 2, 14, 0.5, 7, "m"], ["e", "路面との離れ", 0.5, 5, 0.5, 1.5, "m"], ["n", "束の数", 4, 24, 2, 16, "分割"]],
         build() {
-          const m = [], pts = [];
-          for (let x = 0; x <= 32; x += 2) pts.push([x, 7 * (1 - ((x - 16) / 16) ** 2), 0]);
-          for (let i = 0; i < pts.length - 1; i++) m.push([[pts[i], pts[i + 1]], 1, SEC.arch]);
-          for (let x = 0; x < 32; x += 2) m.push([L2(x, 8.5, x + 2, 8.5), 0.5, SEC.deck, true]);
-          pts.forEach(([x, y]) => m.push([L2(x, y, x, 8.5), 9, SEC.strut]));
+          const { L, f, e, n } = this.p, D = f + e, m = [], pts = [];
+          for (let i = 0; i <= n; i++) { const x = (L * i) / n; pts.push([x, parab(x, L, f), 0]); }
+          for (let i = 0; i < n; i++) {
+            m.push([[pts[i], pts[i + 1]], 1, SEC.arch]);
+            m.push([L2(pts[i][0], D, pts[i + 1][0], D), 0.5, SEC.deck, true]);
+          }
+          pts.forEach(([x, y]) => m.push([L2(x, y, x, D), 99, SEC.strut]));
+          this.axes = [[0, "A1"], [L / 2, "C"], [L, "A2"]]; this.levels = [[0, "GL"], [D, "路面"]]; this.dims = [0, L / 2, L];
+          this.lat = [[0, D, 0, 40], [L, D, 0, 40]];
           return m;
         },
         sup: (x, y) => (y === 0 ? "pin" : null),
-        axes: [[0, "A1"], [16, "C"], [32, "A2"]], levels: [[0, "GL"], [8.5, "路面"]], dims: [0, 16, 32],
-        lat: [[0, 8.5, 0, 40], [32, 8.5, 0, 40]],
       },
       bstring: {
+        params: [["L", "スパン", 12, 36, 1, 24, "m"], ["H", "柱の高さ", 4, 10, 0.5, 8, "m"], ["s", "サグ", 0.4, 4, 0.1, 1.9, "m"], ["n", "束の数", 1, 7, 1, 3, "本"]],
         build() {
-          const m = [], cab = [[0, 8], [6, 6.6], [12, 6.1], [18, 6.6], [24, 8]];
-          for (let x = 0; x < 24; x += 6) m.push([L2(x, 8, x + 6, 8), 0.5, SEC.sbeam, true]);
-          for (let i = 0; i < cab.length - 1; i++) m.push([L2(...cab[i], ...cab[i + 1]), 6, SEC.cable]);
-          [1, 2, 3].forEach((i) => m.push([L2(cab[i][0], cab[i][1], cab[i][0], 8), 2, SEC.strut]));
-          [0, 24].forEach((x) => m.push([L2(x, 0, x, 8), 1, SEC.col]));
+          const { L, H, s, n } = this.p, m = [], xs = Array.from({ length: n + 2 }, (_, i) => (L * i) / (n + 1));
+          const cab = xs.map((x) => [x, H - parab(x, L, s)]);
+          for (let i = 0; i < xs.length - 1; i++) {
+            m.push([L2(xs[i], H, xs[i + 1], H), 0.5, SEC.sbeam, true]);
+            m.push([L2(...cab[i], ...cab[i + 1]), 99, SEC.cable]);
+          }
+          cab.slice(1, -1).forEach(([x, y]) => m.push([L2(x, y, x, H), 2, SEC.strut]));
+          [0, L].forEach((x) => m.push([L2(x, 0, x, H), 1, SEC.col]));
+          this.axes = [[0, "X1"], [L, "X2"]]; this.levels = [[0, "GL"], [H, "RFL"]]; this.dims = xs;
+          this.lat = [[0, H, 0, 40], [L, H, 0, 40]];
           return m;
         },
         sup: (x, y) => (y === 0 ? "fix" : null),
-        axes: [[0, "X1"], [24, "X2"]], levels: [[0, "GL"], [8, "RFL"]], dims: [0, 6, 12, 18, 24],
-        lat: [[0, 8, 0, 40], [24, 8, 0, 40]],
       },
       truss: {
+        params: [["L", "スパン", 12, 36, 1, 24, "m"], ["d", "せい", 1, 4, 0.2, 2.4, "m"], ["n", "パネル数", 4, 16, 2, 8, ""], ["H", "柱の高さ", 3, 6, 0.5, 4, "m"]],
         build() {
-          const m = [];
-          for (let x = 0; x < 24; x += 3) {
-            m.push([L2(x, 6.4, x + 3, 6.4), 3, SEC.tchord, true]);
-            m.push([L2(x, 4, x + 3, 4), 3, SEC.tchord]);
-            m.push([L2(x, (x / 3) % 2 ? 6.4 : 4, x + 3, (x / 3) % 2 ? 4 : 6.4), 9, SEC.tdiag]);
+          const { L, d, n, H } = this.p, w = L / n, T = H + d, m = [];
+          for (let i = 0; i < n; i++) {
+            const x = i * w;
+            m.push([L2(x, T, x + w, T), 99, SEC.tchord, true]);
+            m.push([L2(x, H, x + w, H), 99, SEC.tchord]);
+            m.push([L2(x, i % 2 ? T : H, x + w, i % 2 ? H : T), 99, SEC.tdiag]);
+            if (i) m.push([L2(x, H, x, T), 99, SEC.tdiag]);
           }
-          for (let x = 3; x < 24; x += 3) m.push([L2(x, 4, x, 6.4), 9, SEC.tdiag]);
-          [0, 24].forEach((x) => { m.push([L2(x, 0, x, 4), 1, SEC.col]); m.push([L2(x, 4, x, 6.4), 1.2, SEC.col]); });
+          [0, L].forEach((x) => { m.push([L2(x, 0, x, H), 1, SEC.col]); m.push([L2(x, H, x, T), 1.2, SEC.col]); });
+          this.axes = [[0, "X1"], [L, "X2"]]; this.levels = [[0, "GL"], [T, "RFL"]]; this.dims = [0, L];
+          this.lat = [[0, T, 0, 60]];
           return m;
         },
         sup: (x, y) => (y === 0 ? "fix" : null),
-        axes: [[0, "X1"], [24, "X2"]], levels: [[0, "GL"], [6.4, "RFL"]], dims: [0, 24],
-        lat: [[0, 6.4, 0, 60]],
       },
       susp: {
+        params: [["L", "スパン", 16, 40, 2, 30, "m"], ["s", "サグ", 1, 6, 0.2, 3.2, "m"], ["H", "マストの高さ", 6, 14, 0.5, 10, "m"], ["b", "控えの開き", 3, 10, 0.5, 7, "m"]],
         build() {
-          const m = [], pts = [];
-          for (let x = 0; x <= 30; x += 2) pts.push([x, 10 - 3.2 * (1 - ((x - 15) / 15) ** 2), 0]);
-          for (let i = 0; i < pts.length - 1; i++) m.push([[pts[i], pts[i + 1]], 1, SEC.hang, true]);
-          [0, 30].forEach((x) => m.push([L2(x, 0, x, 10), 1, SEC.mast]));
-          m.push([L2(-7, 0, 0, 10), 12, SEC.cable]);
-          m.push([L2(37, 0, 30, 10), 12, SEC.cable]);
+          const { L, s, H, b } = this.p, n = Math.round(L / 2), m = [], pts = [];
+          for (let i = 0; i <= n; i++) { const x = (L * i) / n; pts.push([x, H - parab(x, L, s), 0]); }
+          for (let i = 0; i < n; i++) m.push([[pts[i], pts[i + 1]], 1, SEC.hang, true]);
+          [0, L].forEach((x) => m.push([L2(x, 0, x, H), 1, SEC.mast]));
+          m.push([L2(-b, 0, 0, H), 99, SEC.cable]);
+          m.push([L2(L + b, 0, L, H), 99, SEC.cable]);
+          this.axes = [[0, "X1"], [L, "X2"]]; this.levels = [[0, "GL"], [H, "頂部"]]; this.dims = [-b, 0, L / 2, L, L + b];
+          this.lat = [[0, H, 0, 40]];
           return m;
         },
-        sup: (x, y) => (y === 0 ? (x === 0 || x === 30 ? "fix" : "pin") : null),
-        axes: [[0, "X1"], [30, "X2"]], levels: [[0, "GL"], [10, "頂部"]], dims: [-7, 0, 15, 30, 37],
-        lat: [[0, 10, 0, 40]],
+        sup(x, y) { return y === 0 ? (near(x, 0) || near(x, this.p.L) ? "fix" : "pin") : null; },
       },
       box: {
+        params: [["C", "はね出し", 6, 24, 0.5, 14, "m"], ["H1", "下弦の高さ", 3, 7, 0.2, 5, "m"], ["d", "せい", 2, 6, 0.2, 3.6, "m"], ["p", "束の間隔", 1, 4, 0.5, 2, "m"]],
         build() {
-          const m = [];
-          [0, 4].forEach((x) => [[0, 5], [5, 8.6]].forEach(([a, b]) => m.push([L2(x, a, x, b), 1, SEC.core])));
-          for (let x = 0; x < 18; x += 2) {
-            m.push([L2(x, 8.6, x + 2, 8.6), 0.5, SEC.chord, true]);
-            m.push([L2(x, 5, x + 2, 5), 0.5, SEC.chord, true]);
+          const { C, H1, d, p } = this.p, E = 4 + C, T = H1 + d, m = [];
+          [0, 4].forEach((x) => [[0, H1], [H1, T]].forEach(([a, b]) => m.push([L2(x, a, x, b), 1, SEC.core])));
+          const posts = []; for (let x = p; x < E + 1e-6; x += p) if (!near(x, 4)) posts.push(Math.min(x, E));
+          if (!posts.some((x) => near(x, E))) posts.push(E);
+          const keys = uniq([0, 4, ...posts]);
+          for (let i = 0; i < keys.length - 1; i++) {
+            m.push([L2(keys[i], T, keys[i + 1], T), 0.5, SEC.chord, true]);
+            m.push([L2(keys[i], H1, keys[i + 1], H1), 0.5, SEC.chord, true]);
           }
-          for (let x = 2; x <= 18; x += 2) if (x !== 4) m.push([L2(x, 5, x, 8.6), 0.9, SEC.post]);
+          uniq(posts).forEach((x) => m.push([L2(x, H1, x, T), 0.9, SEC.post]));
+          this.axes = [[0, "X1"], [4, "X2"]]; this.levels = [[0, "GL"], [H1, "2FL"], [T, "RFL"]]; this.dims = [0, 4, E];
+          this.lat = [[0, H1, 0, 60], [0, T, 0, 60]];
           return m;
         },
         sup: (x, y) => (y === 0 ? "fix" : null),
-        axes: [[0, "X1"], [4, "X2"]], levels: [[0, "GL"], [5, "2FL"], [8.6, "RFL"]], dims: [0, 4, 18],
-        lat: [[0, 5, 0, 60], [0, 8.6, 0, 60]],
       },
       rahmen: {
+        params: [["B", "スパン", 4, 10, 0.2, 6.6, "m"], ["nb", "スパン数", 1, 5, 1, 3, ""], ["nf", "階数", 1, 6, 1, 2, "層"], ["h", "階高", 3, 5, 0.1, 3.9, "m"], ["c", "はね出し", 0, 4, 0.2, 2.4, "m"]],
         build() {
-          const m = [], XS = [0, 6, 13.2, 19.2], LV = [0, 4.2, 7.8];
-          for (let s = 0; s < 2; s++) XS.forEach((x) => m.push([L2(x, LV[s], x, LV[s + 1]), 1.05, SEC.col]));
-          for (let f = 1; f < 3; f++) for (let b = 0; b < 3; b++) m.push([L2(XS[b], LV[f], XS[b + 1], LV[f]), 0.75, SEC.beam, true]);
-          m.push([L2(19.2, 7.8, 21.6, 7.8), 0.8, SEC.beam, true]);
+          const { B, nb, nf, h, c } = this.p, m = [];
+          const XS = Array.from({ length: nb + 1 }, (_, i) => +(i * B).toFixed(3)), LV = Array.from({ length: nf + 1 }, (_, j) => +(j * h).toFixed(3));
+          for (let s = 0; s < nf; s++) XS.forEach((x) => m.push([L2(x, LV[s], x, LV[s + 1]), h / 4, SEC.col]));
+          for (let f = 1; f <= nf; f++) for (let b = 0; b < nb; b++) m.push([L2(XS[b], LV[f], XS[b + 1], LV[f]), 0.75, SEC.beam, true]);
+          const X1 = XS[nb];
+          if (c > 0) m.push([L2(X1, LV[nf], X1 + c, LV[nf]), 0.8, SEC.beam, true]);
+          this.axes = XS.map((x, i) => [x, XN(i)]);
+          this.levels = LV.map((y, j) => [y, j === nf ? "RFL" : `${j + 1}FL`]);
+          this.dims = c > 0 ? [...XS, X1 + c] : XS;
+          this.lat = LV.slice(1).map((y, j) => [0, y, 0, 60 * (j + 1)]);
           return m;
         },
         sup: (x, y) => (y === 0 ? "fix" : null),
-        axes: [[0, "X1"], [6, "X2"], [13.2, "X3"], [19.2, "X4"]], levels: [[0, "1FL"], [4.2, "2FL"], [7.8, "RFL"]], dims: [0, 6, 13.2, 19.2, 21.6],
-        lat: [[0, 4.2, 0, 80], [0, 7.8, 0, 120]],
       },
 
       /* 空間構造 */
       dome: {
         space: true,
+        params: [["D", "スパン", 12, 40, 1, 24, "m"], ["f", "ライズ", 1.5, 14, 0.5, 6, "m"], ["rings", "リング数", 2, 6, 1, 4, ""]],
         build() {
-          // 単層ラチスドーム：スパン24m・ライズ6m の球面、6分割の三角形網
-          const m = [], R = 15, rise = 6, rings = 4, span = 12;
-          const cy = rise - R, P3 = (r, a) => [r * Math.cos(a), cy + Math.sqrt(R * R - r * r), r * Math.sin(a)];
+          // 単層ラチスドーム：球面、6分割の三角形網
+          const { D, rings } = this.p, a = D / 2, rise = Math.min(this.p.f, a), R = (a * a + rise * rise) / (2 * rise), m = [];
+          const cy = rise - R, P3 = (r, ang) => [r * Math.cos(ang), cy + Math.sqrt(Math.max(0, R * R - r * r)), r * Math.sin(ang)];
           const ring = [[P3(0, 0)]];
           for (let i = 1; i <= rings; i++) {
-            const r = span * i / rings, n = 6 * i, row = [];
+            const r = a * i / rings, n = 6 * i, row = [];
             for (let j = 0; j < n; j++) row.push(P3(r, (2 * Math.PI * j) / n + (i % 2 ? 0 : Math.PI / (6 * i))));
+            if (i === rings) row.forEach((p) => { p[1] = 0; });
             ring.push(row);
           }
           const link = (p, q) => m.push([[p, q], 99, SEC.lat, true]);
@@ -186,13 +216,13 @@
         },
         sup: (x, y) => (Math.abs(y) < 1e-6 ? "pin" : null),
         lat: (nodes) => nodes.map((n, k) => [k, n.sup ? 0 : 2.5]).filter((a) => a[1]),
-        view: 0.5,
       },
       space: {
         space: true,
+        params: [["n", "グリッド数", 3, 9, 1, 6, ""], ["s", "グリッド", 2, 4, 0.5, 3, "m"], ["d", "せい", 0.8, 3, 0.2, 1.8, "m"], ["H", "高さ", 5, 10, 0.5, 8, "m"]],
         build() {
-          // 立体トラス：上弦 3m グリッド・せい 1.8m、四隅の柱で支持
-          const m = [], s = 3, n = 6, top = 8, bot = 6.2, X = (i) => i * s - (n * s) / 2;
+          // 立体トラス：上弦グリッド・下弦は半グリッドずらし、四隅の柱で支持
+          const { n, s, d, H } = this.p, m = [], top = H, bot = H - d, X = (i) => i * s - (n * s) / 2;
           for (let i = 0; i <= n; i++) for (let j = 0; j < n; j++) {
             m.push([[[X(j), top, X(i)], [X(j + 1), top, X(i)]], 99, SEC.sch, true]);
             m.push([[[X(i), top, X(j)], [X(i), top, X(j + 1)]], 99, SEC.sch, true]);
@@ -206,14 +236,14 @@
           return m;
         },
         sup: (x, y) => (Math.abs(y) < 1e-6 ? "fix" : null),
-        lat: (nodes) => nodes.map((nd, k) => [k, nd.y === 8 ? 3 : 0]).filter((a) => a[1]),
-        view: 0.55,
+        lat(nodes) { return nodes.map((nd, k) => [k, near(nd.y, this.p.H) ? 3 : 0]).filter((a) => a[1]); },
       },
       hp: {
         space: true,
+        params: [["h", "大きさ", 10, 24, 1, 16, "m"], ["k", "ねじれ", 0, 6, 0.2, 3.6, "m"], ["n", "分割数", 4, 12, 2, 8, ""], ["H", "中心の高さ", 4, 8, 0.5, 5.5, "m"]],
         build() {
-          // HPシェル（ラチス）：z = uv の鞍形、低い2隅で支持
-          const m = [], n = 8, h = 16, f = (u, v) => [u * h / 2, 5.5 + 3.6 * u * v, v * h / 2];
+          // HPシェル（ラチス）：z = uv の鞍形。4 隅の柱で支持
+          const { h, n, H } = this.p, k = Math.min(this.p.k, H - 1), m = [], f = (u, v) => [u * h / 2, H + k * u * v, v * h / 2];
           const U = (i) => -1 + (2 * i) / n;
           // 縁梁を先に置く（同じ位置の格子材より優先される）
           [[-1, -1, 1, -1], [1, -1, 1, 1], [1, 1, -1, 1], [-1, 1, -1, -1]].forEach(([a, b, c, d]) => {
@@ -229,19 +259,20 @@
         },
         sup: (x, y) => (Math.abs(y) < 1e-6 ? "fix" : null),
         lat: (nodes) => nodes.map((nd, k) => [k, nd.y > 2 ? 1.5 : 0]).filter((a) => a[1]),
-        view: 0.45,
       },
       /* ロゴの t：アイソメ図の 3 軸（x の腕・y の柱・z の脚）をそのまま架構にしたもの。脚の先端だけで立つ */
       logo: {
         space: true,
+        params: [["H", "柱", 4, 14, 0.5, 10, "m"], ["A", "腕", 1, 6, 0.5, 3, "m"], ["F", "脚", 1, 6, 0.5, 3, "m"]],
         build() {
+          const { H, A, F } = this.p;
           return [
-            [[[0, 0, 0], [0, 10, 0]], 1, SEC.logo],
-            [[[-3, 10, 0], [0, 10, 0]], 0.5, SEC.logo, true],
-            [[[0, 0, 0], [0, 0, 3]], 0.5, SEC.logo],
+            [[[0, 0, 0], [0, H, 0]], 1, SEC.logo],
+            [[[-A, H, 0], [0, H, 0]], 0.5, SEC.logo, true],
+            [[[0, 0, 0], [0, 0, F]], 0.5, SEC.logo],
           ];
         },
-        sup: (x, y, z) => (y === 0 && z === 3 ? "fix" : null),
+        sup(x, y, z) { return y === 0 && near(z, this.p.F) ? "fix" : null; },
         yaw: -Math.PI / 4, still: true, bar: 1.1, fit: 0.8,   // ロゴと同じ向きで止めて、太い部材で描く
         lat: (nodes) => nodes.map((nd, k) => [k, nd.y > 0 ? 4 : 0]).filter((a) => a[1]),
       },
@@ -264,6 +295,8 @@
         max: 40,
       },
     };
+
+    Object.values(PRESETS).forEach((pre) => { if (pre.params) pre.p = Object.fromEntries(pre.params.map((q) => [q[0], q[5]])); });
 
     /* ── モデルを組み立てて、荷重ケースを解いておく ── */
     const kk = (x, y, z) => [x, y, z].map((v) => +v.toFixed(3)).join(",");
@@ -368,7 +401,10 @@
         return { solve, Kc, singular };
       };
       const base = assemble(null), solve = base.solve;
-      if (!els.length || base.singular) return { pre, nodes, els, n: 0, unstable: true, space: false, box: { ...pre.box, z0: 0, z1: 0 } };
+      if (!els.length || base.singular) {
+        const bx = pre.box || { x0: Math.min(...nodes.map((d) => d.x)), x1: Math.max(...nodes.map((d) => d.x)), y0: 0, y1: Math.max(...nodes.map((d) => d.y)) };
+        return { pre, nodes, els, n: 0, unstable: true, space: false, box: { ...bx, z0: 0, z1: 0 } };
+      }
 
       const md = { pre, nodes, key, els, dof, n, toLocal, space: !!pre.space, assemble, solve, Kc: base.Kc };
       md.loadNodes = [...new Set(els.filter((e) => e.load).flatMap((e) => [e.i, e.j]))].filter((k) => !nodes[k].sup);
@@ -507,8 +543,43 @@
       useModel(build(pre));
       if (reduceMotion) st.md.unstable ? draw(performance.now()) : still();
     };
+    // 形状パラメータ：スライダーを動かすと、その場で組み直して解き直す
+    const paramBox = $("#params"), paramList = $("#params .pl");
+    const decimals = (step) => (String(step).split(".")[1] || "").length;
+    const pval = (q, v) => `${v.toFixed(decimals(q[4]))}${q[6] ? " " + q[6] : ""}`;
+    const renderParams = (id) => {
+      const pre = PRESETS[id];
+      paramBox.hidden = !pre.params;
+      if (!pre.params) return;
+      paramList.innerHTML = pre.params.map((q) => `<label><span>${q[1]}</span><input type="range" min="${q[2]}" max="${q[3]}" step="${q[4]}" value="${pre.p[q[0]]}" data-k="${q[0]}"><b>${pval(q, pre.p[q[0]])}</b></label>`).join("");
+    };
+    let pend = 0;
+    const rebuild = () => {
+      pend = 0;
+      models[st.id] = build(PRESETS[st.id]);
+      useModel(models[st.id]);
+      resize();
+      if (reduceMotion) still();
+    };
+    const queueRebuild = () => { if (!pend) pend = requestAnimationFrame(rebuild); };
+    paramList.addEventListener("input", (ev) => {
+      const el = ev.target, pre = PRESETS[st.id], q = pre.params.find((x) => x[0] === el.dataset.k);
+      pre.p[q[0]] = +el.value; el.nextElementSibling.textContent = pval(q, +el.value);
+      queueRebuild();
+    });
+    paramBox.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => {
+      const pre = PRESETS[st.id];
+      pre.params.forEach((q) => {
+        if (b.dataset.p === "reset") { pre.p[q[0]] = q[5]; return; }
+        const k = Math.round((Math.random() * (q[3] - q[2])) / q[4]);
+        pre.p[q[0]] = +(q[2] + k * q[4]).toFixed(6);
+      });
+      renderParams(st.id); queueRebuild();
+    }));
+
     const setModel = (id) => {
       st.id = id;
+      renderParams(id);
       st.edit = id === "draw" ? { cur: null } : null;
       document.querySelector(".seg.edit").hidden = id !== "draw";
       canvas.classList.toggle("pen", id === "draw");
@@ -994,6 +1065,7 @@
     }
     function editOverlay(sx, sy) {
       const { col } = st, e = st.edit;
+      if (!e) return;
       ctx.strokeStyle = col.acc; ctx.fillStyle = col.acc; ctx.lineWidth = 2.4;
       if (e.cur) {
         ctx.setLineDash([7, 5]);
@@ -1012,23 +1084,24 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, st.W, st.H);
       ctx.lineCap = "round"; ctx.lineJoin = "round";
-      editGrid(sx, sy);
+      if (st.edit) editGrid(sx, sy);
       ctx.strokeStyle = col.ink3; ctx.lineWidth = 1; ctx.setLineDash([14, 4, 2, 4]);
       ctx.beginPath(); ctx.moveTo(sx(b.x0) - 14, sy(0)); ctx.lineTo(sx(b.x1) + 18, sy(0)); ctx.stroke();
       ctx.setLineDash([]);
       ctx.font = `500 ${small ? 9 : 11}px "IBM Plex Mono", monospace`; ctx.textBaseline = "middle"; ctx.textAlign = "left";
       ctx.fillStyle = col.ink3; ctx.fillText("GL", sx(b.x1) + 22, sy(0));
-      const L = PRESETS.draw.lines;
+      const L = st.edit ? PRESETS.draw.lines : [];
       ctx.strokeStyle = col.acc; ctx.lineWidth = 2.4; ctx.setLineDash([6, 4]);
       L.forEach(([a, c]) => { ctx.beginPath(); ctx.moveTo(sx(a[0]), sy(a[1])); ctx.lineTo(sx(c[0]), sy(c[1])); ctx.stroke(); });
       ctx.setLineDash([]);
       editOverlay(sx, sy);
-      const main = st.edit.cur ? "離したところまで部材を引きます" : L.length ? "不安定です。GL（地面）までつないでください" : "線を引いて、構造をつくってください";
+      const cur = st.edit && st.edit.cur;
+      const main = !st.edit ? "この形では不安定です。パラメータを戻してください" : cur ? "離したところまで部材を引きます" : L.length ? "不安定です。GL（地面）までつないでください" : "線を引いて、構造をつくってください";
       ctx.textBaseline = "alphabetic";
       ctx.font = `600 ${small ? 12 : 14}px "IBM Plex Mono", "Noto Sans JP", monospace`;
-      ctx.fillStyle = L.length && !st.edit.cur ? col.acc : col.ink; ctx.fillText(main, 14, small ? 22 : 26);
+      ctx.fillStyle = (L.length || !st.edit) && !cur ? col.acc : col.ink; ctx.fillText(main, 14, small ? 22 : 26);
       ctx.font = `400 ${small ? 9.5 : 11}px "Noto Sans JP", monospace`;
-      ctx.fillStyle = col.ink3; ctx.fillText("ドラッグで部材を引きます。1m グリッドに吸着し、GL 上の点は固定端になります", 14, small ? 38 : 44);
+      ctx.fillStyle = col.ink3; ctx.fillText(st.edit ? "ドラッグで部材を引きます。1m グリッドに吸着し、GL 上の点は固定端になります" : "支点や部材のつながりが足りず、つり合いがとれません", 14, small ? 38 : 44);
       ctx.textBaseline = "middle";
       const lab = ["LOAD", "部材", "状態", "SCALE"], txt = ["—", `${L.length} 本`, L.length ? "不安定" : "—", "—"];
       ro.load.textContent = txt[0]; ro.m.textContent = txt[1]; ro.d.textContent = txt[2]; ro.s.textContent = txt[3];
@@ -1091,7 +1164,7 @@
       if (brk) drawBroken(brk, proj, amp);
       // ロゴの ▶
       if (md.pre.bar && !brk) {
-        const [X, Y] = proj(0, 8.6, 0), h = md.pre.bar * st.k * 0.62;
+        const [X, Y] = proj(0, md.pre.p.H - 1.4, 0), h = md.pre.bar * st.k * 0.62;
         ctx.fillStyle = col.ink;
         ctx.beginPath(); ctx.moveTo(X + h * 1.3, Y - h); ctx.lineTo(X + h * 1.3, Y + h); ctx.lineTo(X + h * 3, Y); ctx.closePath(); ctx.fill();
       }

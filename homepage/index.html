@@ -44,7 +44,7 @@
       <p class="eyebrow">STRUCTURAL ENGINEERS — TOKYO, HIROO</p>
       <h1><span>力の流れを、</span><span>かたちに<b class="acc">。</b></span></h1>
       <p class="lead">テクトニカは、建築・土木構造物・アート作品の構造設計を行う構造設計事務所です。住宅から公共建築、万博の休憩所、美術館の什器まで。素材とスケールを横断しながら、建築家とともに「構造から考える建築」をつくっています。</p>
-      <p class="hint"><b>TRY →</b> 右の構造体にカーソルを置くと、その位置に荷重がかかります。樹状柱・アーチ・張弦梁・吊り屋根などの平面架構と、ラチスドーム・立体トラス・HPシェルの空間構造を切り替えられます。変形と応力図は、ブラウザ内でその場で解いた解析結果です。<br><b>DRAW →</b>「✎ 描いてみる」で、自分で引いた架構をその場で解けます。<br><b>SHAKE →</b> 右上の「揺らす」で、このページ自体を 9 層の建物として地震で揺らします。</p>
+      <p class="hint"><b>TRY →</b> 右の構造体にカーソルを置くと、その位置に荷重がかかります。樹状柱・アーチ・張弦梁・吊り屋根などの平面架構と、ラチスドーム・立体トラス・HPシェルの空間構造を切り替えられます。変形と応力図は、ブラウザ内でその場で解いた解析結果です。スパン・ライズ・分割数などはスライダーで変えられ、動かすたびに解き直します。<br><b>DRAW →</b>「✎ 描いてみる」で、自分で引いた架構をその場で解けます。<br><b>SHAKE →</b> 右上の「揺らす」で、このページ自体を 9 層の建物として地震で揺らします。</p>
     </div>
 
     <figure class="lab" aria-label="インタラクティブな骨組の構造解析">
@@ -81,6 +81,14 @@
         <div class="seg edit" role="group" aria-label="描いた部材" hidden>
           <button type="button" data-edit="undo">1本戻す</button>
           <button type="button" data-edit="clear">全部消す</button>
+        </div>
+      </div>
+      <div id="params" class="params" role="group" aria-label="形状パラメータ">
+        <span class="ph">形状</span>
+        <div class="pl"></div>
+        <div class="pb">
+          <button type="button" data-p="rand">ランダム</button>
+          <button type="button" data-p="reset">初期値</button>
         </div>
       </div>
       <canvas id="frame" aria-hidden="true"></canvas>

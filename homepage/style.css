@@ -510,3 +510,24 @@ main > section { will-change: auto; }
   .q-bar b { width: 100%; font-size: 12px; }
   #q-cv { height: 150px; }
 }
+
+/* ───────── 形状パラメータ ───────── */
+.params {
+  display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap;
+  padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12px;
+}
+.params[hidden] { display: none; }
+.params .ph { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; color: var(--ink-3); }
+.params .pl { display: flex; flex-wrap: wrap; gap: 6px 16px; flex: 1; min-width: 0; }
+.params label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.params label span { color: var(--ink-2); }
+.params input[type="range"] { width: 92px; accent-color: var(--acc); margin: 0; }
+.params label b { font-family: var(--mono); font-weight: 500; font-size: 11px; min-width: 4.6em; }
+.params .pb { display: inline-flex; gap: 6px; }
+.params .pb button { border: 1px solid var(--ink); background: none; cursor: pointer; padding: 2px 8px; font-family: var(--mono); font-size: 11px; }
+.params .pb button:first-child { border-color: var(--acc); color: var(--acc); }
+@media (max-width: 560px) {
+  .params .pl { display: grid; grid-template-columns: 1fr; gap: 4px; flex-basis: 100%; }
+  .params label { display: grid; grid-template-columns: 6.5em 1fr 4.8em; }
+  .params input[type="range"] { width: 100%; }
+}
