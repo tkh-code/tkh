@@ -230,6 +230,24 @@
         lat: (nodes) => nodes.map((nd, k) => [k, nd.y > 2 ? 1.5 : 0]).filter((a) => a[1]),
         view: 0.45,
       },
+      /* 自由に描く：1m グリッドに線を引いた架構。GL 上の点は固定端 */
+      draw: {
+        lines: [[[2, 0], [2, 6]], [[2, 6], [14, 6]], [[14, 6], [14, 0]], [[14, 6], [20, 9]]],
+        build() {
+          return this.lines.map(([a, b]) => [[[a[0], a[1], 0], [b[0], b[1], 0]], 1, Math.abs(b[1] - a[1]) > Math.abs(b[0] - a[0]) ? SEC.col : SEC.beam, true]);
+        },
+        sup: (x, y) => (y === 0 ? "fix" : null),
+        axes: [], levels: [[0, "GL"]], dims: [0, 24],
+        // 線の端点に、高さに比例した水平力（合計 100kN）
+        lat(nodes) {
+          const ends = new Set(this.lines.flat().map(([x, y]) => kk(x, y, 0)));
+          const pts = nodes.map((nd, k) => [k, nd]).filter(([, nd]) => !nd.sup && nd.y > 0 && ends.has(kk(nd.x, nd.y, 0)));
+          const sum = pts.reduce((a, [, nd]) => a + nd.y, 0) || 1;
+          return pts.map(([k, nd]) => [k, (100 * nd.y) / sum]);
+        },
+        box: { x0: 0, x1: 24, y0: 0, y1: 10 },
+        max: 40,
+      },
     };
 
     /* ── モデルを組み立てて、荷重ケースを解いておく ── */
@@ -335,6 +353,7 @@
         return { solve, Kc, singular };
       };
       const base = assemble(null), solve = base.solve;
+      if (!els.length || base.singular) return { pre, nodes, els, n: 0, unstable: true, space: false, box: { ...pre.box, z0: 0, z1: 0 } };
 
       const md = { pre, nodes, key, els, dof, n, toLocal, space: !!pre.space, assemble, solve, Kc: base.Kc };
       md.loadNodes = [...new Set(els.filter((e) => e.load).flatMap((e) => [e.i, e.j]))].filter((k) => !nodes[k].sup);
@@ -363,6 +382,7 @@
       md.vCase.forEach((u) => { const p = peaks(md, u); for (const k in p) md.ref.v[k] = Math.max(md.ref.v[k], p[k]); });
       const xs = nodes.map((nd) => nd.x), ys = nodes.map((nd) => nd.y), zs = nodes.map((nd) => nd.z);
       md.box = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), z0: Math.min(...zs), z1: Math.max(...zs) };
+      if (pre.box) Object.assign(md.box, pre.box);
       md.c = [(md.box.x0 + md.box.x1) / 2, (md.box.y0 + md.box.y1) / 2, (md.box.z0 + md.box.z1) / 2];
       md.rad = Math.max(...nodes.map((nd) => Math.hypot(nd.x - md.c[0], nd.y - md.c[1], nd.z - md.c[2])));
       return md;
@@ -455,15 +475,30 @@
     const st = {
       md: null, id: "tree", load: "v", dia: "M", target: 0, hover: false, t0: performance.now(),
       u: null, visible: true, W: 0, H: 0, dpr: 1, k: 1, ox: 0, oy: 0, col: {}, yaw: 0.6, yawT: performance.now(),
-      mode: 0, drag: null, brk: null,
+      mode: 0, drag: null, brk: null, edit: null,
+    };
+    const useModel = (md) => {
+      st.md = md; st.u = new Float64Array(md.n);
+      st.t0 = performance.now(); st.brk = null; st.drag = null; st.mode = 0;
+      if (md.unstable) return;
+      st.target = md.demoNodes[Math.floor(md.demoNodes.length * 0.3)];
+      if (st.load === "m") modes(md);
+    };
+    // 描いた線から架構を組み直す
+    const rebuildDraw = () => {
+      const pre = PRESETS.draw, xs = [...new Set(pre.lines.flat().map((p) => p[0]))].sort((a, b) => a - b);
+      pre.dims = xs.length > 1 ? xs : [0, 24];
+      useModel(build(pre));
+      if (reduceMotion) st.md.unstable ? draw(performance.now()) : still();
     };
     const setModel = (id) => {
-      st.id = id; st.md = getModel(id);
-      st.u = new Float64Array(st.md.n);
-      st.target = st.md.demoNodes[Math.floor(st.md.demoNodes.length * 0.3)];
-      st.t0 = performance.now(); st.brk = null; st.drag = null; st.mode = 0;
-      if (st.load === "m") modes(st.md);
+      st.id = id;
+      st.edit = id === "draw" ? { cur: null } : null;
+      document.querySelector(".seg.edit").hidden = id !== "draw";
+      canvas.classList.toggle("pen", id === "draw");
       document.querySelectorAll("[data-model]").forEach((b) => b.classList.toggle("on", b.dataset.model === id));
+      if (id === "draw") { rebuildDraw(); resize(); return; }
+      useModel(getModel(id));
       resize();
       if (reduceMotion) still();
     };
@@ -501,7 +536,7 @@
       const px = X * c - Z * s, d = X * s + Z * c;
       return [st.ox + px * st.k, st.oy - (Y * Math.cos(PITCH) + d * Math.sin(PITCH)) * st.k, d];
     };
-    const still = () => { st.u = Float64Array.from(st.load === "v" ? st.md.vCase.get(st.target) : st.md.hCase); draw(performance.now()); };
+    const still = () => { if (st.md.unstable) { draw(performance.now()); return; } st.u = Float64Array.from(st.load === "v" ? st.md.vCase.get(st.target) : st.md.hCase); draw(performance.now()); };
 
     // 入力：ホバーで載荷点を移す／ドラッグで引っぱる／クリックで次のモード・破壊開始
     const ptr = (ev) => { const r = canvas.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
@@ -524,8 +559,20 @@
       }
       return md.dragCache.get(k);
     };
+    // 画面 → 1m グリッド上の点（描くモード）
+    const toGrid = (px, py) => {
+      const b = PRESETS.draw.box, cl = (v, a, z) => Math.min(z, Math.max(a, Math.round(v)));
+      return [cl((px - st.ox) / st.k, b.x0, b.x1), cl((st.oy - py) / st.k, b.y0, b.y1)];
+    };
+    const drawing = () => st.edit && (st.md.unstable || st.load === "v" || st.load === "h");
     canvas.addEventListener("pointermove", (ev) => {
       const [px, py] = ptr(ev);
+      if (st.edit) {
+        st.edit.hov = toGrid(px, py);
+        if (st.edit.cur) st.edit.cur.b = st.edit.hov;
+        if (reduceMotion) draw(performance.now());
+        if (st.edit.cur || st.md.unstable) return;
+      }
       if (st.drag) { st.drag.px = px; st.drag.py = py; return; }
       st.hover = true;
       if (st.load === "v") { st.target = nearest(px, py, st.md.loadNodes); if (reduceMotion) still(); }
@@ -533,6 +580,12 @@
     canvas.addEventListener("pointerdown", (ev) => {
       const [px, py] = ptr(ev);
       st.hover = true;
+      if (drawing()) {
+        const a = toGrid(px, py);
+        st.edit.cur = { a, b: a };
+        try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* 捕捉できなくても続ける */ }
+        return;
+      }
       if (st.load === "m") { st.mode = (st.mode + 1) % modes(st.md).length; st.t0 = performance.now(); return; }
       if (st.load === "b") { if (!st.brk || st.brk.phase === "done") startBreak(nearest(px, py, st.md.loadNodes)); return; }
       if (st.load !== "v") return;
@@ -540,10 +593,20 @@
       st.drag = { k, x0: px, y0: py, px, py, basis: dragBasis(st.md, k), F: [0, 0] };
       try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* 捕捉できなくても続ける */ }
     });
-    const endDrag = () => { if (st.drag) { st.target = st.md.loadNodes.includes(st.drag.k) ? st.drag.k : st.target; st.drag = null; } };
+    const endDraw = () => {
+      const c = st.edit && st.edit.cur;
+      if (!c) return false;
+      st.edit.cur = null;
+      const pre = PRESETS.draw, same = (p, q) => p[0] === q[0] && p[1] === q[1];
+      const dup = pre.lines.some(([p, q]) => (same(p, c.a) && same(q, c.b)) || (same(p, c.b) && same(q, c.a)));
+      if (!same(c.a, c.b) && !dup && pre.lines.length < pre.max) { pre.lines.push([c.a, c.b]); rebuildDraw(); }
+      return true;
+    };
+    const endDrag = () => {
+      if (endDraw()) return; if (st.drag) { st.target = st.md.loadNodes.includes(st.drag.k) ? st.drag.k : st.target; st.drag = null; } };
     canvas.addEventListener("pointerup", endDrag);
     canvas.addEventListener("pointercancel", endDrag);
-    canvas.addEventListener("pointerleave", () => { if (!st.drag) { st.hover = false; st.t0 = performance.now(); } });
+    canvas.addEventListener("pointerleave", () => { if (st.edit) st.edit.hov = null; if (!st.drag && !(st.edit && st.edit.cur)) { st.hover = false; st.t0 = performance.now(); } });
 
     // 壊してみる：選んだ点の荷重を増やし、検定比が1を超えた部材から破断させて組み直す
     function startBreak(k) {
@@ -588,12 +651,17 @@
 
     const setLoad = (l) => {
       st.load = l; st.brk = null; st.drag = null; st.mode = 0; st.t0 = performance.now();
-      if (l === "m") modes(st.md);
+      if (l === "m" && !st.md.unstable) modes(st.md);
       document.querySelectorAll("[data-load]").forEach((b) => b.classList.toggle("on", b.dataset.load === l));
       if (reduceMotion) still();
     };
     document.querySelectorAll("[data-load]").forEach((b) => b.addEventListener("click", () => setLoad(b.dataset.load)));
     document.querySelectorAll("[data-model]").forEach((b) => b.addEventListener("click", () => setModel(b.dataset.model)));
+    document.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
+      const L = PRESETS.draw.lines;
+      if (b.dataset.edit === "undo") L.pop(); else L.length = 0;
+      rebuildDraw();
+    }));
     document.querySelectorAll("[data-dia]").forEach((b) => b.addEventListener("click", () => {
       st.dia = b.dataset.dia;
       document.querySelectorAll("[data-dia]").forEach((x) => x.classList.toggle("on", x === b));
@@ -654,7 +722,12 @@
     function message(t) {
       const { col } = st, small = st.W < 520;
       let main = "", sub = "", hot = false;
-      if (st.load === "v") { main = st.drag ? `F = ${fmt(Math.hypot(...st.drag.F), 0)} kN で引っぱっています` : "ドラッグすると、その点を引っぱれます"; sub = st.drag ? "指を離すと戻ります" : "カーソルを置くと、その位置に P=100kN"; hot = !!st.drag; }
+      if (st.edit && (st.load === "v" || st.load === "h")) {
+        const L = PRESETS.draw.lines.length;
+        main = st.edit.cur ? "離したところまで部材を引きます" : L >= PRESETS.draw.max ? `部材は ${PRESETS.draw.max} 本までです` : "線を描き足すと、その場で解き直します";
+        sub = `部材 ${L} 本｜GL に接する点は固定端｜${st.load === "v" ? "カーソルの位置に P=100kN" : "水平力 Q=100kN"}`;
+        hot = !!st.edit.cur;
+      } else if (st.load === "v") { main = st.drag ? `F = ${fmt(Math.hypot(...st.drag.F), 0)} kN で引っぱっています` : "ドラッグすると、その点を引っぱれます"; sub = st.drag ? "指を離すと戻ります" : "カーソルを置くと、その位置に P=100kN"; hot = !!st.drag; }
       if (st.load === "h") { main = "地震力で左右に揺らしています"; sub = "Ai分布に近い水平力"; }
       if (st.load === "m") { const M = modes(st.md)[st.mode]; main = `${st.mode + 1}次モード　T = ${fmt(M.T, 3)} s`; sub = "クリックで次のモード →"; }
       if (st.load === "b") {
@@ -682,6 +755,7 @@
 
     function draw(t) {
       const { col, dpr, md } = st;
+      if (md.unstable) { drawEdit(); return; }
       const { u: tu, s } = targetU(t);
       // ばねのように追従させる
       const a = reduceMotion ? 1 : 0.18;
@@ -777,6 +851,7 @@
       const u = st.u, R = refNow(), { x0, x1, y1 } = md.box, span = x1 - x0;
       const small = st.W < 520, brk = st.load === "b" ? st.brk : null;
       const sx = (x) => st.ox + x * st.k, sy = (y) => st.oy - y * st.k;
+      if (st.edit) editGrid(sx, sy);
 
       // 通り芯（一点鎖線）と符号
       ctx.font = `500 ${small ? 9 : 11}px "IBM Plex Mono", monospace`;
@@ -890,7 +965,58 @@
         });
         loadTxt = `Q=${md.Qsum}kN（水平）`;
       }
+      if (st.edit) editOverlay(sx, sy);
       return { loadTxt, amp };
+    }
+
+    /* 描くモード：グリッド・引きかけの線・不安定なときの表示 */
+    function editGrid(sx, sy) {
+      const { col } = st, b = PRESETS.draw.box;
+      ctx.fillStyle = col.line;
+      for (let x = b.x0; x <= b.x1; x++) for (let y = b.y0; y <= b.y1; y++) ctx.fillRect(sx(x) - 1, sy(y) - 1, 2, 2);
+    }
+    function editOverlay(sx, sy) {
+      const { col } = st, e = st.edit;
+      ctx.strokeStyle = col.acc; ctx.fillStyle = col.acc; ctx.lineWidth = 2.4;
+      if (e.cur) {
+        ctx.setLineDash([7, 5]);
+        ctx.beginPath(); ctx.moveTo(sx(e.cur.a[0]), sy(e.cur.a[1])); ctx.lineTo(sx(e.cur.b[0]), sy(e.cur.b[1])); ctx.stroke();
+        ctx.setLineDash([]);
+        const L = Math.hypot(e.cur.b[0] - e.cur.a[0], e.cur.b[1] - e.cur.a[1]);
+        if (L) { ctx.font = `600 11px "IBM Plex Mono", monospace`; ctx.textAlign = "center"; ctx.fillText(`${fmt(L * 1000, 0)}`, (sx(e.cur.a[0]) + sx(e.cur.b[0])) / 2, (sy(e.cur.a[1]) + sy(e.cur.b[1])) / 2 - 12); }
+        [e.cur.a, e.cur.b].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(sx(x), sy(y), 4, 0, Math.PI * 2); ctx.fill(); });
+      } else if (e.hov && (st.md.unstable || st.load === "v" || st.load === "h")) {
+        ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(sx(e.hov[0]), sy(e.hov[1]), 6, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    function drawEdit() {
+      const { col, dpr } = st, b = PRESETS.draw.box, small = st.W < 520;
+      const sx = (x) => st.ox + x * st.k, sy = (y) => st.oy - y * st.k;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, st.W, st.H);
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      editGrid(sx, sy);
+      ctx.strokeStyle = col.ink3; ctx.lineWidth = 1; ctx.setLineDash([14, 4, 2, 4]);
+      ctx.beginPath(); ctx.moveTo(sx(b.x0) - 14, sy(0)); ctx.lineTo(sx(b.x1) + 18, sy(0)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = `500 ${small ? 9 : 11}px "IBM Plex Mono", monospace`; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+      ctx.fillStyle = col.ink3; ctx.fillText("GL", sx(b.x1) + 22, sy(0));
+      const L = PRESETS.draw.lines;
+      ctx.strokeStyle = col.acc; ctx.lineWidth = 2.4; ctx.setLineDash([6, 4]);
+      L.forEach(([a, c]) => { ctx.beginPath(); ctx.moveTo(sx(a[0]), sy(a[1])); ctx.lineTo(sx(c[0]), sy(c[1])); ctx.stroke(); });
+      ctx.setLineDash([]);
+      editOverlay(sx, sy);
+      const main = st.edit.cur ? "離したところまで部材を引きます" : L.length ? "不安定です。GL（地面）までつないでください" : "線を引いて、構造をつくってください";
+      ctx.textBaseline = "alphabetic";
+      ctx.font = `600 ${small ? 12 : 14}px "IBM Plex Mono", "Noto Sans JP", monospace`;
+      ctx.fillStyle = L.length && !st.edit.cur ? col.acc : col.ink; ctx.fillText(main, 14, small ? 22 : 26);
+      ctx.font = `400 ${small ? 9.5 : 11}px "Noto Sans JP", monospace`;
+      ctx.fillStyle = col.ink3; ctx.fillText("ドラッグで部材を引きます。1m グリッドに吸着し、GL 上の点は固定端になります", 14, small ? 38 : 44);
+      ctx.textBaseline = "middle";
+      const lab = ["LOAD", "部材", "状態", "SCALE"], txt = ["—", `${L.length} 本`, L.length ? "不安定" : "—", "—"];
+      ro.load.textContent = txt[0]; ro.m.textContent = txt[1]; ro.d.textContent = txt[2]; ro.s.textContent = txt[3];
+      roL.forEach((el, i) => { el.innerHTML = lab[i]; });
+      roLast = "";
     }
 
     /* 空間構造：回転する立体図。部材を応力で色分けする */
@@ -1254,6 +1380,242 @@
 
   const rvObs = new IntersectionObserver((ents) => ents.forEach((en) => { if (en.isIntersecting) { en.target.classList.add("in"); rvObs.unobserve(en.target); } }), { rootMargin: "0px 0px -8% 0px" });
   document.querySelectorAll(".rv, .sec-h, .tenets li, .svc li").forEach((el) => { el.classList.add("rv"); rvObs.observe(el); });
+
+  /* ───────────────────── このページを地震で揺らす ─────────────────────
+   * 各セクションを 1 層とみなした 9 層のせん断型モデル。
+   * 模擬地震波を入力して時刻歴応答（モード重ね合わせ＋ニューマーク β 法）を求め、
+   * セクションを各階の変位どおりに動かす。免震では最下層に積層ゴムの層を足す。
+   */
+  const quake = (() => {
+    const btn = $(".quake-btn"), panel = $("#quake"), cv = $("#q-cv"), qx = cv.getContext("2d");
+    const secs = [...document.querySelectorAll("main > section")].reverse();   // 1F（事務所）→ 9F（トップ）
+    const NAMES = { office: "事務所", services: "業務", record: "受賞・掲載", index: "部材リスト", process: "建方", works: "作品", about: "理念" };
+    const names = secs.map((el) => NAMES[el.id] || (el.classList.contains("ticks") ? "数字" : "トップ"));
+    const H = 4;            // 階高 m
+    const DT = 0.01, DUR = 26;
+    const st = { on: false, iso: false, res: null, t0: 0, raf: 0, scale: 1 };
+
+    // 乱数（毎回同じ波になるよう種を固定）
+    const rng = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    // 模擬地震波：白色雑音を地盤（金井・田治見型）と長周期カットのフィルタに通し、包絡線をかける。最大 350 gal
+    const wave = (() => {
+      const r = rng(1995), n = Math.round(DUR / DT), a = new Float64Array(n);
+      const wg = 9, zg = 0.5, wf = 1.2, zf = 0.6;
+      let x = 0, v = 0, y = 0, w = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i * DT, g = Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.PI * r());
+        const acc = -g * 30 - 2 * zg * wg * v - wg * wg * x; v += acc * DT; x += v * DT;
+        const ag = -(2 * zg * wg * v + wg * wg * x);
+        const acc2 = ag - 2 * zf * wf * w - wf * wf * y; w += acc2 * DT; y += w * DT;
+        const env = t < 2 ? (t / 2) ** 2 : t < 10 ? 1 : Math.exp(-0.25 * (t - 10));
+        a[i] = acc2 * env;   // 高域通過後の加速度
+      }
+      let mx = 0; a.forEach((v_) => { mx = Math.max(mx, Math.abs(v_)); });
+      return a.map((v_) => (v_ / mx) * 3.5);
+    })();
+
+    // 対称な固有値問題（ヤコビ法）
+    const jacobi = (A) => {
+      const n = A.length, V = A.map((_, i) => A.map((__, j) => (i === j ? 1 : 0)));
+      for (let sw = 0; sw < 60; sw++) {
+        let off = 0; for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) off += A[i][j] ** 2;
+        if (off < 1e-18) break;
+        for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+          if (Math.abs(A[i][j]) < 1e-30) continue;
+          const th = 0.5 * Math.atan2(2 * A[i][j], A[j][j] - A[i][i]), c = Math.cos(th), s = Math.sin(th);
+          for (let k = 0; k < n; k++) { const a = A[k][i], b = A[k][j]; A[k][i] = c * a - s * b; A[k][j] = s * a + c * b; }
+          for (let k = 0; k < n; k++) { const a = A[i][k], b = A[j][k]; A[i][k] = c * a - s * b; A[j][k] = s * a + c * b; }
+          for (let k = 0; k < n; k++) { const a = V[k][i], b = V[k][j]; V[k][i] = c * a - s * b; V[k][j] = s * a + c * b; }
+        }
+      }
+      return { w2: A.map((r, i) => r[i]), V };
+    };
+
+    // 応答を計算する（各階の地面に対する変位の時刻歴）
+    const solve = (iso) => {
+      const hs = secs.map((el) => el.offsetHeight), avg = hs.reduce((a, b) => a + b, 0) / hs.length;
+      const m = hs.map((h) => 400 * Math.min(2, Math.max(0.6, h / avg)));   // t：セクションの高さに比例
+      const N = secs.length;
+      // 剛性は上ほど小さく、1次周期が 1.0 秒になるように合わせる
+      let k = m.map((_, i) => 1 - 0.55 * (i / N));
+      const build = (kk, mm) => {
+        const n = mm.length, K = mm.map(() => new Array(n).fill(0));
+        for (let i = 0; i < n; i++) { K[i][i] += kk[i]; if (i > 0) { K[i - 1][i - 1] += kk[i]; K[i - 1][i] -= kk[i]; K[i][i - 1] -= kk[i]; } }
+        return jacobi(K.map((r, i) => r.map((v, j) => v / Math.sqrt(mm[i] * mm[j]))));
+      };
+      const w1 = Math.min(...build(k, m).w2);
+      k = k.map((v) => v * ((2 * Math.PI / 1.0) ** 2 / w1));
+      let mm = m, kk = k, zeta = () => 0.03;
+      if (iso) {
+        // 免震層：基礎上の床 600t、全体で周期 4 秒、減衰 20%
+        const Mt = m.reduce((a, b) => a + b, 0) + 600;
+        mm = [600, ...m]; kk = [(2 * Math.PI / 4) ** 2 * Mt, ...k];
+        zeta = (i) => (i === 0 ? 0.2 : 0.03);
+      }
+      const n = mm.length, { w2, V } = build(kk, mm);
+      const order = w2.map((_, i) => i).sort((a, b) => w2[a] - w2[b]);
+      const steps = wave.length, U = Array.from({ length: n }, () => new Float32Array(steps));
+      order.forEach((mi, rank) => {
+        const w = Math.sqrt(w2[mi]), phi = V.map((r, i) => r[mi] / Math.sqrt(mm[i]));
+        const Mn = phi.reduce((a, p, i) => a + mm[i] * p * p, 0), Ln = phi.reduce((a, p, i) => a + mm[i] * p, 0), G = Ln / Mn;
+        const z = zeta(rank), c = 2 * z * w, kq = w * w;
+        // ニューマーク β 法（平均加速度）
+        const b = 0.25, gm = 0.5, ke = kq + gm / (b * DT) * c + 1 / (b * DT * DT);
+        let q = 0, qd = 0, qa = -G * wave[0];
+        for (let s = 1; s < steps; s++) {
+          const f = -G * wave[s] + (q / (b * DT * DT) + qd / (b * DT) + (1 / (2 * b) - 1) * qa) + c * (gm / (b * DT) * q + (gm / b - 1) * qd + DT * (gm / (2 * b) - 1) * qa);
+          const qn = f / ke, qan = (qn - q) / (b * DT * DT) - qd / (b * DT) - (1 / (2 * b) - 1) * qa;
+          qd = qd + DT * ((1 - gm) * qa + gm * qan); q = qn; qa = qan;
+          for (let i = 0; i < n; i++) U[i][s] += phi[i] * q;
+        }
+      });
+      const off = iso ? 1 : 0, floors = U.slice(off), base = iso ? U[0] : null;
+      // 層間変形角の最大値（各層）
+      const drift = floors.map((u, i) => { let mx = 0; const lo = i ? floors[i - 1] : base; for (let s = 0; s < steps; s++) mx = Math.max(mx, Math.abs(u[s] - (lo ? lo[s] : 0)) / H); return mx; });
+      const roof = floors[floors.length - 1]; let rmax = 0; roof.forEach((v) => { rmax = Math.max(rmax, Math.abs(v)); });
+      let bmax = 0; if (base) base.forEach((v) => { bmax = Math.max(bmax, Math.abs(v)); });
+      return { floors, base, drift, rmax, bmax, T1: 2 * Math.PI / Math.sqrt(w2[order[0]]) };
+    };
+
+    let ref = null;   // 表示の倍率の基準：耐震・免震で大きいほうの屋上の最大変位
+    const run = () => {
+      st.res = solve(st.iso);
+      ref ||= { rmax: Math.max(solve(false).rmax, solve(true).rmax) };
+      st.scale = 70 / ref.rmax;             // px/m：屋上の最大変位が 70px
+      st.t0 = performance.now(); st.on = true;
+      panel.querySelectorAll("[data-q]").forEach((b) => b.classList.toggle("on", (b.dataset.q === "iso") === st.iso));
+      document.documentElement.classList.add("quaking");
+      cancelAnimationFrame(st.raf); st.raf = requestAnimationFrame(tick);
+    };
+    const place = (s) => {
+      if (reduceMotion) return;
+      const { floors, base } = st.res;
+      secs.forEach((el, i) => {
+        if (s < 0) { el.style.transform = ""; return; }
+        const u = floors[i][s], lo = i ? floors[i - 1][s] : base ? base[s] : 0;
+        const x = Math.max(-100, Math.min(100, ((u + lo) / 2) * st.scale));
+        const sk = Math.max(-6, Math.min(6, (-(u - lo) / H) * 520));   // 層間変形角 1/100 で約 3°
+        el.style.transform = `translateX(${x.toFixed(1)}px) skewX(${sk.toFixed(2)}deg)`;
+      });
+    };
+    const tick = (now) => {
+      const t = (now - st.t0) / 1000, s = Math.min(wave.length - 1, Math.floor(t / DT));
+      place(s); paint(s);
+      if (t < DUR) st.raf = requestAnimationFrame(tick);
+      else { st.on = false; place(-1); paint(wave.length - 1, true); document.documentElement.classList.remove("quaking"); }
+    };
+
+    const fmt = (v, d = 1) => v.toLocaleString("ja-JP", { minimumFractionDigits: d, maximumFractionDigits: d });
+    const inv = (r) => (r > 0 ? `1/${Math.round(1 / r)}` : "—");
+    // パネル：建物の立面（揺れ）・層間変形角・地震波
+    function paint(s, end) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2), r = cv.getBoundingClientRect();
+      if (cv.width !== Math.round(r.width * dpr) || cv.height !== Math.round(r.height * dpr)) { cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
+      const W = r.width, Hh = r.height, small = W < 600;
+      const col = { ink: css("--ink"), ink3: css("--ink-3"), line: css("--line"), acc: css("--acc"), paper: css("--paper"), blue: css("--blue") };
+      qx.setTransform(dpr, 0, 0, dpr, 0, 0); qx.clearRect(0, 0, W, Hh);
+      qx.lineCap = "round"; qx.lineJoin = "round";
+      const { floors, base, drift } = st.res, N = floors.length;
+      const mono = (w, z) => `${w} ${z}px "IBM Plex Mono", "Noto Sans JP", monospace`;
+
+      // 立面
+      const bw = small ? 64 : 96, bx = 14 + 26, top = 46, bot = Hh - 16, fh = (bot - top - (base ? 8 : 0)) / N;
+      const sc = (small ? 22 : 30) / ref.rmax;
+      const gx = bx + bw / 2;
+      qx.strokeStyle = col.ink3; qx.lineWidth = 1;
+      qx.beginPath(); qx.moveTo(bx - 14, bot); qx.lineTo(bx + bw + 14, bot); qx.stroke();
+      for (let h = bx - 12; h < bx + bw + 12; h += 6) { qx.beginPath(); qx.moveTo(h, bot); qx.lineTo(h - 5, bot + 6); qx.stroke(); }
+      const xb = base ? base[s] * sc : 0, yb = bot - (base ? 8 : 0);
+      if (base) {
+        qx.strokeStyle = col.acc; qx.beginPath();
+        for (let i = 0; i < 5; i++) { const x0 = bx + 6 + i * (bw - 12) / 4; qx.moveTo(x0, bot); qx.lineTo(x0 + xb, yb); }
+        qx.stroke();
+      }
+      let prev = xb;
+      // いま画面にある階
+      const vis = secs.findIndex((el) => { const b = el.getBoundingClientRect(); return b.top < innerHeight * 0.5 && b.bottom > innerHeight * 0.5; });
+      for (let i = 0; i < N; i++) {
+        const x = floors[i][s] * sc, y0 = yb - i * fh, y1 = yb - (i + 1) * fh;
+        const dr = Math.abs(floors[i][s] - (i ? floors[i - 1][s] : base ? base[s] : 0)) / H;
+        qx.fillStyle = i === vis ? col.acc + "33" : "transparent";
+        qx.beginPath(); qx.moveTo(bx + prev, y0); qx.lineTo(bx + bw + prev, y0); qx.lineTo(bx + bw + x, y1); qx.lineTo(bx + x, y1); qx.closePath(); qx.fill();
+        qx.strokeStyle = dr > 0.01 ? col.acc : col.ink; qx.lineWidth = dr > 0.01 ? 2 : 1.4;
+        qx.beginPath(); qx.moveTo(bx + prev, y0); qx.lineTo(bx + x, y1); qx.moveTo(bx + bw + prev, y0); qx.lineTo(bx + bw + x, y1); qx.stroke();
+        qx.strokeStyle = col.ink; qx.lineWidth = 1.4; qx.beginPath(); qx.moveTo(bx + x - 3, y1); qx.lineTo(bx + bw + x + 3, y1); qx.stroke();
+        qx.fillStyle = col.ink3; qx.font = mono(500, 9); qx.textAlign = "right"; qx.textBaseline = "middle";
+        qx.fillText(`${i + 1}F`, bx - 6, (y0 + y1) / 2);
+        prev = x;
+      }
+
+      // 層間変形角（最大値）
+      const dx = bx + bw + (small ? 26 : 40), dw = small ? 70 : 150, dmax = 1 / 80;
+      qx.font = mono(500, 9); qx.textAlign = "left"; qx.fillStyle = col.ink3; qx.textBaseline = "alphabetic";
+      qx.fillText(small ? "層間変形角" : "最大層間変形角", dx, top - 10);
+      qx.strokeStyle = col.ink3; qx.setLineDash([3, 3]);
+      const lx = dx + (dw * (1 / 100)) / dmax;
+      qx.beginPath(); qx.moveTo(lx, top - 4); qx.lineTo(lx, bot); qx.stroke(); qx.setLineDash([]);
+      qx.fillText("1/100", lx + 3, bot - 2);
+      for (let i = 0; i < N; i++) {
+        const y1 = yb - (i + 1) * fh, w = Math.min(dw, (dw * (end ? drift[i] : runMax(i, s))) / dmax);
+        qx.fillStyle = (end ? drift[i] : runMax(i, s)) > 0.01 ? col.acc : col.ink;
+        qx.fillRect(dx, y1 + fh * 0.3, w, fh * 0.4);
+      }
+
+      // 地震波と屋上の変位
+      const L = Hh - top - 6, wx = dx + dw + (small ? 14 : 34), ww = W - wx - 14, wy = top + L * 0.26, wh = L * 0.2;
+      if (ww > 60) {
+        const n = wave.length, px = (i) => wx + (i / (n - 1)) * ww;
+        qx.strokeStyle = col.line; qx.lineWidth = 1; qx.beginPath();
+        for (let i = 0; i < n; i += 2) { const y = wy - (wave[i] / 3.5) * wh; i ? qx.lineTo(px(i), y) : qx.moveTo(px(i), y); }
+        qx.stroke();
+        qx.strokeStyle = col.ink; qx.beginPath();
+        for (let i = 0; i <= s; i += 2) { const y = wy - (wave[i] / 3.5) * wh; i ? qx.lineTo(px(i), y) : qx.moveTo(px(i), y); }
+        qx.stroke();
+        const ry = top + L * 0.76, roof = floors[N - 1];
+        qx.strokeStyle = col.acc; qx.lineWidth = 1.6; qx.beginPath();
+        for (let i = 0; i <= s; i += 2) { const y = ry - (roof[i] / ref.rmax) * wh; i ? qx.lineTo(px(i), y) : qx.moveTo(px(i), y); }
+        qx.stroke();
+        qx.strokeStyle = col.acc; qx.lineWidth = 1; qx.beginPath(); qx.moveTo(px(s), top - 2); qx.lineTo(px(s), Hh - 10); qx.stroke();
+        qx.font = mono(500, 9); qx.fillStyle = col.ink3; qx.textAlign = "left";
+        qx.fillText(small ? "地動加速度" : "地動加速度（模擬波・最大 350 gal）", wx, wy - wh - 3);
+        qx.fillText("屋上の変位", wx, ry - wh - 3);
+      }
+
+      // 見出し
+      let dm = 0, di = 0; (end ? drift : drift.map((_, i) => runMax(i, s))).forEach((v, i) => { if (v > dm) { dm = v; di = i; } });
+      qx.textAlign = "left"; qx.textBaseline = "alphabetic"; qx.font = mono(600, small ? 11 : 13);
+      qx.fillStyle = dm > 0.01 ? col.acc : col.ink;
+      const head = end
+        ? `${st.iso ? "免震" : "耐震"}：最大層間変形角 ${inv(dm)}（${di + 1}F ${names[di]}）${st.iso ? `　免震層 ${fmt(st.res.bmax * 100, 0)}cm` : ""}`
+        : `t = ${fmt(s * DT, 1)} s　屋上 ${fmt(floors[N - 1][s] * 100, 1)} cm`;
+      qx.fillText(head, 14, 18);
+      if (!small) {
+        qx.textAlign = "right"; qx.font = mono(400, 10); qx.fillStyle = col.ink3;
+        qx.fillText(`このページ＝9層の建物　1次周期 ${fmt(st.res.T1, 2)} s`, W - 14, 18);
+      }
+    }
+    // s ステップまでの層間変形角の最大（表示用に間引いて求める）
+    const runCache = new Map();
+    function runMax(i, s) {
+      const key = `${st.iso}|${i}`, { floors, base } = st.res;
+      let c = runCache.get(key); if (!c || c.res !== st.res) { c = { res: st.res, s: 0, v: 0 }; runCache.set(key, c); }
+      if (s < c.s) { c.s = 0; c.v = 0; }
+      const lo = i ? floors[i - 1] : base;
+      for (; c.s <= s; c.s++) c.v = Math.max(c.v, Math.abs(floors[i][c.s] - (lo ? lo[c.s] : 0)) / H);
+      return c.v;
+    }
+
+    btn.addEventListener("click", () => { panel.hidden = false; btn.setAttribute("aria-expanded", "true"); run(); });
+    panel.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => { st.iso = b.dataset.q === "iso"; run(); }));
+    $(".q-again").addEventListener("click", run);
+    $(".q-close").addEventListener("click", () => {
+      cancelAnimationFrame(st.raf); st.on = false; if (st.res) place(-1);
+      document.documentElement.classList.remove("quaking");
+      panel.hidden = true; btn.setAttribute("aria-expanded", "false");
+    });
+    addEventListener("resize", () => { if (!panel.hidden && st.res && !st.on) paint(wave.length - 1, true); });
+    return {};
+  })();
 
   const d = new Date();
   $("#tb-date").textContent = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;

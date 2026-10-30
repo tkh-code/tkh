@@ -27,6 +27,9 @@
     <a href="#services"><i>X6</i><span>業務</span></a>
     <a href="#office"><i>X7</i><span>事務所</span></a>
   </nav>
+  <button class="quake-btn" type="button" aria-expanded="false" aria-controls="quake" title="このページを地震で揺らす">
+    <svg viewBox="0 0 24 12" aria-hidden="true"><path d="M1 6h4l2-5 3 10 3-8 2 5 2-2h6"/></svg><span>揺らす</span>
+  </button>
   <button class="theme" type="button" aria-pressed="false" title="青図モードに切り替え">
     <span class="sw"></span><span class="lb">青図</span>
   </button>
@@ -40,7 +43,7 @@
       <p class="eyebrow">STRUCTURAL ENGINEERS — TOKYO, HIROO</p>
       <h1><span>力の流れを、</span><span>かたちに<b class="acc">。</b></span></h1>
       <p class="lead">テクトニカは、建築・土木構造物・アート作品の構造設計を行う構造設計事務所です。住宅から公共建築、万博の休憩所、美術館の什器まで。素材とスケールを横断しながら、建築家とともに「構造から考える建築」をつくっています。</p>
-      <p class="hint"><b>TRY →</b> 右の構造体にカーソルを置くと、その位置に荷重がかかります。樹状柱・アーチ・張弦梁・吊り屋根などの平面架構と、ラチスドーム・立体トラス・HPシェルの空間構造を切り替えられます。変形と応力図は、ブラウザ内でその場で解いた解析結果です。</p>
+      <p class="hint"><b>TRY →</b> 右の構造体にカーソルを置くと、その位置に荷重がかかります。樹状柱・アーチ・張弦梁・吊り屋根などの平面架構と、ラチスドーム・立体トラス・HPシェルの空間構造を切り替えられます。変形と応力図は、ブラウザ内でその場で解いた解析結果です。<br><b>DRAW →</b>「✎ 描いてみる」で、自分で引いた架構をその場で解けます。<br><b>SHAKE →</b> 右上の「揺らす」で、このページ自体を 9 層の建物として地震で揺らします。</p>
     </div>
 
     <figure class="lab" aria-label="インタラクティブな骨組の構造解析">
@@ -59,6 +62,8 @@
           <button type="button" data-model="dome">ラチスドーム</button>
           <button type="button" data-model="space">立体トラス</button>
           <button type="button" data-model="hp">HPシェル</button>
+          <span class="grp">自由</span>
+          <button type="button" data-model="draw" class="pen">✎ 描いてみる</button>
         </div>
         <div class="seg" role="group" aria-label="荷重・解析">
           <button type="button" data-load="v" class="on">鉛直荷重 P</button>
@@ -70,6 +75,10 @@
           <button type="button" data-dia="M" class="on">M</button>
           <button type="button" data-dia="Q">Q</button>
           <button type="button" data-dia="N">N</button>
+        </div>
+        <div class="seg edit" role="group" aria-label="描いた部材" hidden>
+          <button type="button" data-edit="undo">1本戻す</button>
+          <button type="button" data-edit="clear">全部消す</button>
         </div>
       </div>
       <canvas id="frame" aria-hidden="true"></canvas>
@@ -202,6 +211,20 @@
 </main>
 
 <!-- 表題欄（図面枠） -->
+<!-- このページを地震で揺らす -->
+<aside id="quake" class="quake" aria-label="このページの地震応答" hidden>
+  <div class="q-bar">
+    <b>このページは 9 層の建物です</b>
+    <div class="seg" role="group" aria-label="構造">
+      <button type="button" data-q="rigid" class="on">耐震構造</button>
+      <button type="button" data-q="iso">免震構造</button>
+    </div>
+    <button type="button" class="q-again">もう一度</button>
+    <button type="button" class="q-close" aria-label="閉じる">×</button>
+  </div>
+  <canvas id="q-cv" aria-hidden="true"></canvas>
+</aside>
+
 <footer class="titleblock">
   <div class="tb-cell tb-name"><em>工事名称</em><b>TECTONICA INC. WEBSITE</b></div>
   <div class="tb-cell"><em>図面名称</em><b>構造概要（トップページ）</b></div>
