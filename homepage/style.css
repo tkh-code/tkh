@@ -8,6 +8,7 @@
   --ink-3: #8c8980;
   --line: #c9c5b8;
   --grid: rgba(29, 29, 27, .055);
+  --iso: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2248.497%22%20height%3D%2228%22%3E%3Cpath%20d%3D%22M0%200L48.497%2028M0%2028L48.497%200M0%200V28M24.2485%200V28%22%20stroke%3D%22rgba%2829%2C29%2C27%2C.06%29%22%20stroke-width%3D%221%22%20fill%3D%22none%22/%3E%3C/svg%3E");
   --acc: #e2452b;          /* 朱：荷重・応力 */
   --acc-soft: rgba(226, 69, 43, .14);
   --blue: #2f5bd3;         /* 変形 */
@@ -28,6 +29,7 @@
   --ink-3: #8ea4d6;
   --line: #4d6fb0;
   --grid: rgba(238, 243, 255, .07);
+  --iso: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2248.497%22%20height%3D%2228%22%3E%3Cpath%20d%3D%22M0%200L48.497%2028M0%2028L48.497%200M0%200V28M24.2485%200V28%22%20stroke%3D%22rgba%28238%2C243%2C255%2C.08%29%22%20stroke-width%3D%221%22%20fill%3D%22none%22/%3E%3C/svg%3E");
   --acc: #ffd34d;
   --acc-soft: rgba(255, 211, 77, .16);
   --blue: #7fe0ff;
@@ -41,10 +43,8 @@ html { scroll-behavior: smooth; scroll-padding-top: calc(var(--bar-h) + 12px); }
 body {
   margin: 0;
   background-color: var(--paper);
-  background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-image: var(--iso);   /* ロゴの組み方と同じ 30° のアイソメ格子 */
+  background-size: 48.497px 28px;
   color: var(--ink);
   font-family: var(--sans);
   font-size: 15px;
@@ -69,9 +69,11 @@ button { font: inherit; color: inherit; }
   border-bottom: 1px solid var(--line);
 }
 .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-.logo svg { width: 30px; height: 30px; fill: none; stroke: var(--ink); stroke-width: 2.4; stroke-linejoin: round; }
-.logo span { font-family: var(--mono); font-weight: 600; letter-spacing: .22em; font-size: 15px; }
-.logo small { font-size: 10px; margin-left: .4em; letter-spacing: .1em; color: var(--ink-2); }
+.logo { color: var(--ink); }
+/* ロゴ（野老朝雄デザイン）。原本のベクターをそのまま使い、色だけテーマに合わせる */
+.logo svg, .tb-logo svg { fill: currentColor; display: block; }
+.logo .mark { height: 32px; width: auto; }
+.logo .type { height: 11px; width: auto; }
 
 .axes { display: flex; margin-left: auto; position: relative; }
 .axes::before { /* 通り芯の一点鎖線 */
@@ -110,12 +112,12 @@ button { font: inherit; color: inherit; }
 @media (max-width: 560px) {
   :root { --bar-h: 56px; }
   .bar { gap: 10px; }
-  .logo small, .theme .lb { display: none; }
+  .theme .lb { display: none; }
   .theme { padding: 4px; }
   .axes i { width: 24px; height: 24px; font-size: 9px; }
   .axes a { padding: 2px 1px; }
 }
-@media (max-width: 400px) { .logo span { display: none; } }
+@media (max-width: 400px) { .logo .type { display: none; } }
 
 /* ───────── HERO ───────── */
 .hero {
@@ -447,7 +449,7 @@ h1 b { font-weight: inherit; }
 
 /* ───────── 表題欄 ───────── */
 .titleblock {
-  display: grid; grid-template-columns: 2.2fr 1.6fr .8fr .7fr .8fr 1.6fr;
+  display: grid; grid-template-columns: 2.2fr 1.6fr .8fr .7fr .8fr 1.6fr 1.1fr;
   border: 1.5px solid var(--ink); margin: 0 var(--gut) var(--gut);
 }
 .tb-cell { padding: 8px 12px 10px; display: flex; flex-direction: column; min-width: 0; }
@@ -456,12 +458,16 @@ h1 b { font-weight: inherit; }
 .tb-cell b { font-weight: 500; font-size: 13px; font-family: var(--mono); overflow-wrap: anywhere; }
 .tb-office b { font-family: var(--mincho); font-weight: 700; font-size: 15px; }
 .tb-cell small { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+.tb-logo { flex-direction: row; align-items: center; justify-content: center; gap: 10px; color: var(--ink); }
+.tb-logo .mark { height: 40px; width: auto; }
+.tb-logo .type { height: 9px; width: auto; }
 @media (max-width: 800px) {
   .titleblock { grid-template-columns: repeat(2, 1fr); }
   .tb-cell + .tb-cell { border-left: 0; }
   .tb-cell { border-top: 1px solid var(--ink); }
   .tb-cell:nth-child(-n+2) { border-top: 0; }
   .tb-cell:nth-child(even) { border-left: 1px solid var(--ink); }
+  .tb-logo { grid-column: 1 / -1; padding: 14px; }
 }
 
 /* スクロールで現れる */

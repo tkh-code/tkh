@@ -39,6 +39,7 @@
       col: sec(2.8e-2, 4.0e-4), beam: sec(1.2e-2, 5.0e-4),
       sbeam: sec(1.0e-2, 3.0e-4), cable: sec(2.5e-3, 2.0e-7), tchord: sec(6.0e-3, 2.0e-5), tdiag: sec(3.0e-3, 6.0e-6),
       mast: sec(3.0e-2, 6.0e-4), hang: sec(1.6e-2, 1.2e-4), hpEdge: sec(1.2e-2, 2.5e-4),
+      logo: sec(3.0e-2, 1.2e-3),
       lat: sec(4.0e-3, 1.5e-5), sch: sec(3.0e-3, 6.0e-6), sdi: sec(2.0e-3, 3.0e-6), scol: sec(3.0e-2, 4.0e-4), hp: sec(3.5e-3, 1.2e-5),
     };
     const L2 = (x1, y1, x2, y2) => [[x1, y1, 0], [x2, y2, 0]];
@@ -229,6 +230,20 @@
         sup: (x, y) => (Math.abs(y) < 1e-6 ? "fix" : null),
         lat: (nodes) => nodes.map((nd, k) => [k, nd.y > 2 ? 1.5 : 0]).filter((a) => a[1]),
         view: 0.45,
+      },
+      /* ロゴの t：アイソメ図の 3 軸（x の腕・y の柱・z の脚）をそのまま架構にしたもの。脚の先端だけで立つ */
+      logo: {
+        space: true,
+        build() {
+          return [
+            [[[0, 0, 0], [0, 10, 0]], 1, SEC.logo],
+            [[[-3, 10, 0], [0, 10, 0]], 0.5, SEC.logo, true],
+            [[[0, 0, 0], [0, 0, 3]], 0.5, SEC.logo],
+          ];
+        },
+        sup: (x, y, z) => (y === 0 && z === 3 ? "fix" : null),
+        yaw: -Math.PI / 4, still: true, bar: 1.1, fit: 0.8,   // ロゴと同じ向きで止めて、太い部材で描く
+        lat: (nodes) => nodes.map((nd, k) => [k, nd.y > 0 ? 4 : 0]).filter((a) => a[1]),
       },
       /* 自由に描く：1m グリッドに線を引いた架構。GL 上の点は固定端 */
       draw: {
@@ -481,6 +496,7 @@
       st.md = md; st.u = new Float64Array(md.n);
       st.t0 = performance.now(); st.brk = null; st.drag = null; st.mode = 0;
       if (md.unstable) return;
+      if (md.pre.yaw !== undefined) st.yaw = md.pre.yaw;
       st.target = md.demoNodes[Math.floor(md.demoNodes.length * 0.3)];
       if (st.load === "m") modes(md);
     };
@@ -518,7 +534,8 @@
       if (st.md.space) {
         const span = Math.cos(PITCH) + Math.sin(PITCH);
         st.k = Math.min((r.width * 0.86) / (2 * st.md.rad), (r.height * 0.8) / (span * 2 * st.md.rad) * 1.25);
-        st.ox = r.width / 2; st.oy = r.height * 0.54;
+        st.k *= st.md.pre.fit || 1;
+        st.ox = r.width / 2; st.oy = r.height * (st.md.pre.fit ? 0.6 : 0.54);
       } else {
         const pl = small ? 22 : 48, pr = small ? 42 : 66, pt = small ? 84 : 108, pb = small ? 46 : 58;
         const { x0, x1, y0, y1 } = st.md.box, wx = x1 - x0, wy = y1 - y0;
@@ -760,7 +777,7 @@
       // ばねのように追従させる
       const a = reduceMotion ? 1 : 0.18;
       for (let i = 0; i < md.n; i++) st.u[i] += (tu[i] * s - st.u[i]) * a;
-      if (md.space && !st.hover && !st.drag && !reduceMotion) st.yaw += (t - st.yawT) * 0.00012;
+      if (md.space && !md.pre.still && !st.hover && !st.drag && !reduceMotion) st.yaw += (t - st.yawT) * 0.00012;
       st.yawT = t;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1047,22 +1064,37 @@
       }).sort((a, b) => b.d - a.d);
       const dmax = md.rad;
       let peak = null;
+      // 太い部材（ロゴ）は先に全部塗ってから応力を重ねる
+      if (md.pre.bar) {
+        ctx.strokeStyle = col.ink; ctx.lineWidth = md.pre.bar * st.k; ctx.lineCap = "square";
+        list.forEach(({ pa, pb }) => { ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke(); });
+        ctx.lineCap = "round";
+      }
       list.forEach(({ pa, pb, v, d, util: isU }) => {
         const f = isU ? (v > 0.3 ? (v - 0.3) / 0.7 : 0) : Math.min(1, Math.abs(v) / refV);
         const fade = 0.55 + 0.45 * (1 - (d + dmax) / (2 * dmax));
         ctx.globalAlpha = fade;
-        ctx.strokeStyle = col.line; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+        if (!md.pre.bar) {
+          ctx.strokeStyle = col.line; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+        }
         if (f > 0.02) {
           ctx.globalAlpha = fade * (0.25 + 0.75 * f);
           ctx.strokeStyle = st.dia === "N" && v < 0 ? col.blue : col.acc;
-          ctx.lineWidth = 1 + 3.2 * f;
+          ctx.lineWidth = md.pre.bar ? 2 + md.pre.bar * st.k * 0.5 * f : 1 + 3.2 * f;
+          if (md.pre.bar) ctx.globalAlpha = 0.35 + 0.65 * f;
           ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
         }
         if (!isU && (!peak || Math.abs(v) > Math.abs(peak.v))) peak = { v, x: (pa[0] + pb[0]) / 2, y: (pa[1] + pb[1]) / 2 };
       });
       ctx.globalAlpha = 1;
       if (brk) drawBroken(brk, proj, amp);
+      // ロゴの ▶
+      if (md.pre.bar && !brk) {
+        const [X, Y] = proj(0, 8.6, 0), h = md.pre.bar * st.k * 0.62;
+        ctx.fillStyle = col.ink;
+        ctx.beginPath(); ctx.moveTo(X + h * 1.3, Y - h); ctx.lineTo(X + h * 1.3, Y + h); ctx.lineTo(X + h * 3, Y); ctx.closePath(); ctx.fill();
+      }
 
       // 支点
       ctx.strokeStyle = col.ink; ctx.lineWidth = 1;
@@ -1090,7 +1122,7 @@
         ctx.fillStyle = col.ink2; ctx.fillText(l, 40, y);
       });
       ctx.textAlign = "right"; ctx.fillStyle = col.ink3;
-      ctx.fillText(st.hover || st.drag ? "回転を止めています" : "ゆっくり回転中", st.W - 12, st.H - 16);
+      ctx.fillText(md.pre.still ? "ロゴのアイソメ図と同じ向き" : st.hover || st.drag ? "回転を止めています" : "ゆっくり回転中", st.W - 12, st.H - 16);
 
       // 荷重の矢印
       ctx.strokeStyle = col.acc; ctx.fillStyle = col.acc; ctx.lineWidth = 2.2; ctx.textAlign = "center";
