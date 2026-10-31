@@ -1236,22 +1236,22 @@
   /* ───────────────────── 2. 作品 ───────────────────── */
   // 各作品：写真のあとに、その案件の実際のスケッチ・検討図を横に並べる
   const P = (src, cap) => ({ src: `img/${src}.jpg`, cap, kind: "photo" });
-  const S = (src, cap, tag = "SKETCH") => ({ src: `img/draw/${src}.jpg`, cap, kind: "draw", tag });
+  const S = (src, tag = "SKETCH") => ({ src: `img/draw/${src}.jpg`, kind: "draw", tag });
   const WORKS = [
     { no: "0338", t: "花重リノベーション", by: "マル・アーキテクチャ／東京藝術大学", loc: "東京都台東区", aw: ["日本建築学会作品選奨 2025", "東京建築賞 最優秀賞", "AACA賞2024 優秀賞", "グッドデザイン賞2024"], credit: "Photo: Takuya Seki", cls: "wide", dim: "RENOVATION / WOOD",
-      slides: [P("hanaju-1"), P("hanaju-2"), S("hanaju-node", "鉄骨の接合部", "DETAIL"), S("hanaju-print", "接合部の初期案（3Dプリント模型）", "MODEL"), S("hanaju-print2", "柱・梁受け・梁を組み合わせた模型", "MODEL")] },
+      slides: [P("hanaju-1"), P("hanaju-2"), S("hanaju-node", "DETAIL"), S("hanaju-print", "MODEL"), S("hanaju-print2", "MODEL")] },
     { no: "0336", t: "Karuizawa Commongrounds", by: "Klein Dytham architecture", loc: "長野県軽井沢町", aw: ["WAF 2023 Small Project of the Year"], cls: "narrow", dim: "KARUIZAWA",
-      slides: [P("kcg-1"), P("kcg-2"), S("kcg-model", "初期検討の解析モデル（3D）", "MODEL"), S("kcg-plan", "耐震要素の配置計画（手書きの検討）")] },
+      slides: [P("kcg-1"), P("kcg-2"), S("kcg-model", "MODEL"), S("kcg-plan")] },
     { no: "0312", t: "神奈川歯科大学 キャンパスセンター", by: "アトリエMEME", loc: "神奈川県横須賀市", aw: ["The Architecture MasterPrize 2024", "神奈川建築コンクール2025 優秀賞", "Tecture Award 2024"], cls: "narrow", dim: "YOKOSUKA",
       slides: [P("kdu-1"), P("kdu-2")] },
     { no: "0408", t: "東京藝術大学 芸術未来研究場 本部", by: "MARU。architecture", loc: "東京都台東区", pub: "新建築 2025年4月号／GA JAPAN 189・191", credit: "Photo: Takuya Seki", cls: "wide", dim: "UENO",
-      slides: [P("geidai-1"), P("geidai-2"), S("geidai-sketch", "改修部の詳細スケッチ（新設壁・既存躯体）"), S("geidai-mullion", "マリオンの変形図", "STUDY")] },
+      slides: [P("geidai-1"), P("geidai-2"), S("geidai-sketch"), S("geidai-mullion", "STUDY")] },
     { no: "0412", t: "ハニヤスの家 — HANIYASU HOUSE", by: "AATISMO", loc: "神奈川県", aw: ["FRAME 2026 monthly award"], pub: "GA HOUSES 204／住宅特集 2026年2月号", cls: "wide", dim: "2025",
-      slides: [P("haniyasu-1"), P("haniyasu-2"), S("haniyasu-sketch", "構造打合せのスケッチ（曲面の架構と足元）"), S("haniyasu-memo", "打合せメモ", "MEMO")] },
+      slides: [P("haniyasu-1"), P("haniyasu-2"), S("haniyasu-sketch"), S("haniyasu-memo", "MEMO")] },
     { no: "0337", t: "古川製作所 新社屋＋工場", by: "スキーマ建築計画", pub: "新建築 2025年1月号／GA JAPAN 190", cls: "narrow", dim: "OFFICE + FACTORY",
-      slides: [P("furukawa-1"), P("furukawa-2"), S("furukawa-frame", "鉄骨の伏図", "DRAWING")] },
+      slides: [P("furukawa-1"), P("furukawa-2"), S("furukawa-frame", "DRAWING")] },
     { no: "0500", t: "HOAM", by: "山田紗子建築設計事務所", loc: "2026", cls: "full", dim: "PAVILION",
-      slides: [P("process/09-0829-dusk"), P("process/08-0829"), S("hoam-sketch", "最初のスケッチ：マストで重さ（weight）を吊る"), S("hoam-model", "解析モデル：ステンレスのマストとFRPのシェル", "MODEL"), S("hoam-study", "マスト断面の比較検討（M図・変形）", "STUDY")] },
+      slides: [P("process/09-0829-dusk"), P("process/08-0829"), S("hoam-sketch"), S("hoam-model", "MODEL"), S("hoam-study", "STUDY")] },
   ];
   const MINI = [
     { t: "daita2019", by: "山田紗子建築設計事務所", em: "第36回 吉岡賞・住宅建築賞2020" },
@@ -1265,7 +1265,7 @@
     <article class="work ${w.cls} rv">
       <div class="strip-wrap">
         <div class="strip" tabindex="0" aria-label="${esc(w.t)} の写真とスケッチ">
-          ${w.slides.map((s, i) => `<figure class="slide ${s.kind}"><img src="${s.src}" alt="${esc(w.t)}${s.cap ? "：" + esc(s.cap) : ""}" loading="lazy">${s.cap ? `<figcaption><i>${s.tag || "PHOTO"}</i>${esc(s.cap)}</figcaption>` : ""}</figure>`).join("")}
+          ${w.slides.map((s, i) => `<figure class="slide ${s.kind}"><img src="${s.src}" alt="${esc(w.t)}${s.tag ? "：" + s.tag : ""}" loading="lazy">${s.tag ? `<figcaption><i>${s.tag}</i></figcaption>` : ""}</figure>`).join("")}
         </div>
         <span class="dim">← ${esc(w.dim)} →</span>
         ${w.slides.length > 1 ? `<div class="pager"><button type="button" class="prev" aria-label="前へ">←</button><span class="cnt">1 / ${w.slides.length}</span><button type="button" class="next" aria-label="次へ">→</button></div>` : ""}
@@ -1307,17 +1307,10 @@
   /* ───────────────────── 2b. 建方の記録（工程表で写真を送る） ───────────────────── */
   (() => {
     const STEPS = [
-      ["01-0813-mast", 13, "マスト建方", "湾曲したマストが自立。根元のコーンから先端の吊り点まで、一本の曲線でつながる。"],
-      ["02-0813-shell", 13, "シェル取付開始", "吊り点まわりからシェルのピースを取り付けはじめる。"],
-      ["03-0820", 20, "シェル取付", "仮設の架台で受けながら、シェルを少しずつ閉じていく。"],
-      ["04-0820-up", 20, "シェル取付", "下から見上げる。マストの曲線とシェルの縁が近づいていく。"],
-      ["05-0821", 21, "シェル閉合", "半球が閉じた。高所作業車で仕上げを進める。"],
-      ["06-0823", 23, "仮設撤去", "架台を外し、シェルがマストだけで吊られた状態になる。"],
-      ["07-0823-wide", 23, "仮設撤去", "林の向こうから。周囲の木々と同じくらいのスケール。"],
-      ["08-0829", 29, "完成", "芝が入り、ベンチが置かれて完成。"],
-      ["09-0829-dusk", 29, "点灯", "夕暮れ、シェルの内側が光る。"],
+      ["01-0813-mast", 13], ["02-0813-shell", 13], ["03-0820", 20], ["04-0820-up", 20], ["05-0821", 21],
+      ["06-0823", 23], ["07-0823-wide", 23], ["08-0829", 29], ["09-0829-dusk", 29],
     ];
-    const PHASES = [[13, 16, "マスト・シェル取付", false], [16, 21, "シェル取付・閉合", false], [21, 24, "仮設撤去", false], [24, 29, "外構・仕上げ", false], [29, 30, "完成", true]];
+    const PHASES = [];
     const D0 = 12.5, D1 = 30;
     const pct = (d) => ((d - D0) / (D1 - D0)) * 100;
     const stage = $("#stage"), gantt = $("#gantt"), cap = $("#cap");
@@ -1339,11 +1332,11 @@
       if (i === cur) return; cur = i;
       imgs.forEach((im, k) => { im.classList.toggle("on", k === i); if (Math.abs(k - i) <= 1) im.loading = "eager"; });
       head.style.left = pct(pos[i]) + "%";
-      const [, d, t, txt] = STEPS[i];
+      const [, d] = STEPS[i];
       stamp.textContent = `2026.08.${d}`;
-      cap.innerHTML = `<b>${esc(t)}</b>${esc(txt)}`;
+      cap.textContent = `${i + 1} / ${STEPS.length}`;
       gantt.setAttribute("aria-valuenow", i + 1);
-      gantt.setAttribute("aria-valuetext", `8月${d}日 ${t}`);
+      gantt.setAttribute("aria-valuetext", `8月${d}日`);
     };
     const fromX = (x) => {
       const r = gantt.getBoundingClientRect(), d = D0 + ((x - r.left) / r.width) * (D1 - D0);
@@ -1487,16 +1480,17 @@
   document.querySelectorAll(".rv, .sec-h, .tenets li, .svc li").forEach((el) => { el.classList.add("rv"); rvObs.observe(el); });
 
   /* ───────────────────── このページを地震で揺らす ─────────────────────
-   * 各セクションを 1 層とみなした 9 層のせん断型モデル。
+   * 各セクションを 1 層とみなしたせん断型モデル。
    * 模擬地震波を入力して時刻歴応答（モード重ね合わせ＋ニューマーク β 法）を求め、
    * セクションを各階の変位どおりに動かす。免震では最下層に積層ゴムの層を足す。
    */
   const quake = (() => {
     const btn = $(".quake-btn"), panel = $("#quake"), cv = $("#q-cv"), qx = cv.getContext("2d");
     const secs = [...document.querySelectorAll("main > section")].reverse();   // 1F（事務所）→ 9F（トップ）
-    const NAMES = { office: "事務所", services: "業務", record: "受賞・掲載", index: "部材リスト", process: "建方", works: "作品", about: "理念" };
+    const NAMES = { office: "事務所", record: "受賞・掲載", index: "部材リスト", process: "建方", works: "作品" };
     const names = secs.map((el) => NAMES[el.id] || (el.classList.contains("ticks") ? "数字" : "トップ"));
     const H = 4;            // 階高 m
+    $("#q-title").textContent = `このページは ${secs.length} 層の建物です`;
     const DT = 0.01, DUR = 26;
     const st = { on: false, iso: false, res: null, t0: 0, raf: 0, scale: 1 };
 
@@ -1696,7 +1690,7 @@
       qx.fillText(head, 14, 18);
       if (!small) {
         qx.textAlign = "right"; qx.font = mono(400, 10); qx.fillStyle = col.ink3;
-        qx.fillText(`このページ＝9層の建物　1次周期 ${fmt(st.res.T1, 2)} s`, W - 14, 18);
+        qx.fillText(`1次周期 ${fmt(st.res.T1, 2)} s`, W - 14, 18);
       }
     }
     // s ステップまでの層間変形角の最大（表示用に間引いて求める）
