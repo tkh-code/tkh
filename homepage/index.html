@@ -67,12 +67,19 @@
           <button type="button" data-load="v" class="on">鉛直荷重 P</button>
           <button type="button" data-load="h">地震力 Q</button>
           <button type="button" data-load="m">固有振動</button>
+          <button type="button" data-load="k">座屈</button>
+          <button type="button" data-load="e">地震応答</button>
+          <button type="button" data-load="i">移動荷重</button>
           <button type="button" data-load="b" class="hot">壊してみる</button>
         </div>
         <div class="seg" role="group" aria-label="応力図">
           <button type="button" data-dia="M" class="on">M</button>
           <button type="button" data-dia="Q">Q</button>
           <button type="button" data-dia="N">N</button>
+        </div>
+        <div class="seg tools" role="group" aria-label="書き出し・共有">
+          <button type="button" data-tool="dxf" title="いまの架構を DXF で保存">DXF</button>
+          <button type="button" data-tool="share" title="この形と条件のリンクをコピー">共有</button>
         </div>
         <div class="seg edit" role="group" aria-label="描いた部材" hidden>
           <button type="button" data-edit="undo">1本戻す</button>
@@ -109,6 +116,7 @@
   <section id="works" class="sec">
     <h2 class="sec-h"><i>X1</i><span>WORKS</span><em>作品</em></h2>
     <div class="works" id="works-grid"></div>
+    <div class="archive" id="archive"></div>
   </section>
 
 
@@ -186,6 +194,15 @@
 </main>
 
 <!-- 表題欄（図面枠） -->
+<!-- 写真のライトボックス -->
+<div class="lb" id="lb" role="dialog" aria-modal="true" aria-label="写真" hidden>
+  <img alt="">
+  <button type="button" class="lb-x" aria-label="閉じる">×</button>
+  <button type="button" class="lb-prev" aria-label="前へ">←</button>
+  <button type="button" class="lb-next" aria-label="次へ">→</button>
+  <p><span class="lb-c"></span><span class="lb-n"></span></p>
+</div>
+
 <!-- このページを地震で揺らす -->
 <aside id="quake" class="quake" aria-label="このページの地震応答" hidden>
   <div class="q-bar">
@@ -211,6 +228,7 @@
 </footer>
 
 <script src="data.js"></script>
+<script src="site-data.js"></script>
 <script src="main.js"></script>
 </body>
 </html>

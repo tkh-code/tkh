@@ -22,6 +22,30 @@
   };
   themeBtn.addEventListener("click", () => setTheme(root.dataset.theme === "blue" ? "paper" : "blue"));
 
+  /* ───────────────────── 模擬地震波（ページの揺れと架構の地震応答で共用） ───────────────────── */
+  const QUAKE = (() => {
+    const DT = 0.01, DUR = 26;
+    // 乱数（毎回同じ波になるよう種を固定）
+    const rng = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    // 模擬地震波：白色雑音を地盤（金井・田治見型）と長周期カットのフィルタに通し、包絡線をかける。最大 350 gal
+    const wave = (() => {
+      const r = rng(1995), n = Math.round(DUR / DT), a = new Float64Array(n);
+      const wg = 9, zg = 0.5, wf = 1.2, zf = 0.6;
+      let x = 0, v = 0, y = 0, w = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i * DT, g = Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.PI * r());
+        const acc = -g * 30 - 2 * zg * wg * v - wg * wg * x; v += acc * DT; x += v * DT;
+        const ag = -(2 * zg * wg * v + wg * wg * x);
+        const acc2 = ag - 2 * zf * wf * w - wf * wf * y; w += acc2 * DT; y += w * DT;
+        const env = t < 2 ? (t / 2) ** 2 : t < 10 ? 1 : Math.exp(-0.25 * (t - 10));
+        a[i] = acc2 * env;   // 高域通過後の加速度
+      }
+      let mx = 0; a.forEach((v_) => { mx = Math.max(mx, Math.abs(v_)); });
+      return a.map((v_) => (v_ / mx) * 3.5);
+    })();
+    return { DT, DUR, wave };
+  })();
+
   /* ───────────────────── 1. 骨組解析 ───────────────────── */
   const frame = (() => {
     const canvas = $("#frame");
@@ -358,11 +382,7 @@
 
       // 部材ごとの全体座標系の剛性（K = Tᵀ k T）と、断面係数・質量
       els.forEach((e) => {
-        const T = Array.from({ length: 12 }, () => new Float64Array(12));
-        for (let b = 0; b < 4; b++) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) T[b * 3 + r][b * 3 + c] = e.R[r][c];
-        const kT = Array.from({ length: 12 }, (_, r) => { const row = new Float64Array(12); for (let c = 0; c < 12; c++) { let v = 0; for (let t = 0; t < 12; t++) v += e.k[r][t] * T[t][c]; row[c] = v; } return row; });
-        e.KG = new Float64Array(144);
-        for (let p = 0; p < 12; p++) for (let q = 0; q < 12; q++) { let v = 0; for (let r = 0; r < 12; r++) v += T[r][p] * kT[r][q]; e.KG[p * 12 + q] = v; }
+        e.KG = toGlobal(e, e.k);
         e.Z = (2 * e.I) / Math.sqrt((12 * e.I) / e.A);
         e.mass = 7.85 * e.A * e.L;
       });
@@ -439,6 +459,16 @@
       return md;
     };
 
+    // 局所座標の 12×12 行列を全体座標へ（K = Tᵀ k T）
+    function toGlobal(e, k) {
+      const T = Array.from({ length: 12 }, () => new Float64Array(12));
+      for (let b = 0; b < 4; b++) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) T[b * 3 + r][b * 3 + c] = e.R[r][c];
+      const kT = Array.from({ length: 12 }, (_, r) => { const row = new Float64Array(12); for (let c = 0; c < 12; c++) { let v = 0; for (let t = 0; t < 12; t++) v += k[r][t] * T[t][c]; row[c] = v; } return row; });
+      const out = new Float64Array(144);
+      for (let p = 0; p < 12; p++) for (let q = 0; q < 12; q++) { let v = 0; for (let r = 0; r < 12; r++) v += T[r][p] * kT[r][q]; out[p * 12 + q] = v; }
+      return out;
+    }
+
     // 部材の応力（局所座標）。Mi, Mj は局所 z 軸まわり（平面の架構で使う）、Mmax は合成
     function forces(md, u, e) {
       const g = e.map.map((d) => (d < 0 ? 0 : u[d]));
@@ -484,10 +514,138 @@
         const x = X[k]; let mx = 0;
         md.nodes.forEach((_, nd) => { const [a, b, c] = md.dof[nd]; mx = Math.max(mx, Math.hypot(a < 0 ? 0 : x[a], b < 0 ? 0 : x[b], c < 0 ? 0 : x[c])); });
         const u = x.map((v) => (v / mx) * ref);
-        return { T: (2 * Math.PI) / Math.sqrt(Math.max(l, 1e-9)), u, ref: peaks(md, u) };
+        // x 方向の刺激係数 Γ = φᵀ M r（φ は φᵀ M φ = 1 に正規化済み）
+        let gam = 0; md.nodes.forEach((_, nd) => { const a = md.dof[nd][0]; if (a >= 0) gam += mass[a] * x[a]; });
+        return { T: (2 * Math.PI) / Math.sqrt(Math.max(l, 1e-9)), w: Math.sqrt(Math.max(l, 1e-9)), phi: x, gam, u, ref: peaks(md, u) };
       });
       return md.modes;
     }
+    // 線形座屈解析：全載荷点に P をかけたときの軸力から幾何剛性 KG をつくり、(K + λ KG) φ = 0 の最小の λ を求める
+    function buckling(md) {
+      if (md.buck !== undefined) return md.buck;
+      const { n, solve, Kc, nodes, els, dof } = md, F = new Float64Array(n);
+      md.loadNodes.forEach((k) => { F[dof[k][1]] -= P; });
+      const u0 = solve(F), G = new Float64Array(n * n);
+      els.forEach((e) => {
+        const N = forces(md, u0, e).N, L = e.L, c = N / (30 * L);
+        const k = Array.from({ length: 12 }, () => new Float64Array(12));
+        const put = (r, q, v) => { k[r][q] += v; if (r !== q) k[q][r] += v; };
+        // 曲げの 2 面（v–θz と w–θy）。θy は −dw/dx なので符号が逆
+        [[1, 5, 7, 11, 1], [2, 4, 8, 10, -1]].forEach(([a, b, d, f, sg]) => {
+          put(a, a, 36 * c); put(d, d, 36 * c); put(a, d, -36 * c);
+          put(a, b, sg * 3 * L * c); put(a, f, sg * 3 * L * c); put(b, d, -sg * 3 * L * c); put(d, f, -sg * 3 * L * c);
+          put(b, b, 4 * L * L * c); put(f, f, 4 * L * L * c); put(b, f, -L * L * c);
+        });
+        const kg = toGlobal(e, k);
+        for (let p = 0; p < 12; p++) { const P_ = e.map[p]; if (P_ < 0) continue; for (let q = 0; q < 12; q++) { const Q_ = e.map[q]; if (Q_ >= 0) G[P_ * n + Q_] += kg[p * 12 + q]; } }
+      });
+      const mulG = (x) => { const r = new Float64Array(n); for (let i = 0; i < n; i++) { let s_ = 0; const row = i * n; for (let c = 0; c < n; c++) s_ -= G[row + c] * x[c]; r[i] = s_; } return r; };
+      const mulK = (x) => { const r = new Float64Array(n); for (let i = 0; i < n; i++) { let s_ = 0; const row = i * n; for (let c = 0; c < n; c++) s_ += Kc[row + c] * x[c]; r[i] = s_; } return r; };
+      const dot = (a, b) => { let s_ = 0; for (let i = 0; i < n; i++) s_ += a[i] * b[i]; return s_; };
+      const p = Math.min(4, n);
+      let X = Array.from({ length: p }, (_, j) => Float64Array.from({ length: n }, (_, i) => Math.sin(i * (j + 1) * 0.61 + j) + 0.1)), mu = [];
+      for (let it = 0; it < 30; it++) {
+        const Y = X.map((x) => solve(mulG(x)));
+        const KY = Y.map(mulK), GY = Y.map(mulG);
+        const Kr = Y.map((a) => KY.map((b) => dot(a, b))), Gr = Y.map((a) => GY.map((b) => dot(a, b)));
+        const { vals, vecs } = geig(Gr, Kr);   // Gr q = μ Kr q、μ = 1/λ
+        const ord = vals.map((v, i) => i).sort((a, b) => vals[b] - vals[a]);
+        mu = ord.map((i) => vals[i]);
+        X = ord.map((i) => { const x = new Float64Array(n); vecs[i].forEach((c, a) => { for (let r = 0; r < n; r++) x[r] += c * Y[a][r]; }); return x; });
+      }
+      if (!(mu[0] > 1e-9)) { md.buck = null; return null; }
+      const x = X[0]; let mx = 0;
+      nodes.forEach((_, nd) => { const [a, b, c] = dof[nd]; mx = Math.max(mx, Math.hypot(a < 0 ? 0 : x[a], b < 0 ? 0 : x[b], c < 0 ? 0 : x[c])); });
+      const u = x.map((v) => (v / mx) * md.ref.v.d);
+      md.buck = { lam: 1 / mu[0], u, ref: peaks(md, u), nP: md.loadNodes.length };
+      return md.buck;
+    }
+
+    // 地震応答：模擬地震波を x 方向に入れ、低次 4 モードの重ね合わせで変位の時刻歴を求める（減衰 2%）
+    function history(md) {
+      if (md.th) return md.th;
+      const ms = modes(md), { DT, wave } = QUAKE, steps = wave.length, z = 0.02;
+      const q = ms.map((M) => {
+        const out = new Float32Array(steps), w = M.w, c = 2 * z * w, kq = w * w, b = 0.25, g = 0.5, ke = kq + g / (b * DT) * c + 1 / (b * DT * DT);
+        let x = 0, v = 0, a = -M.gam * wave[0];
+        for (let s_ = 1; s_ < steps; s_++) {
+          const f = -M.gam * wave[s_] + (x / (b * DT * DT) + v / (b * DT) + (1 / (2 * b) - 1) * a) + c * (g / (b * DT) * x + (g / b - 1) * v + DT * (g / (2 * b) - 1) * a);
+          const xn = f / ke, an = (xn - x) / (b * DT * DT) - v / (b * DT) - (1 / (2 * b) - 1) * a;
+          v += DT * ((1 - g) * a + g * an); x = xn; a = an; out[s_] = x;
+        }
+        return out;
+      });
+      const at = (s_) => { const u = new Float64Array(md.n); ms.forEach((M, k) => { const qk = q[k][s_]; if (qk) for (let i = 0; i < md.n; i++) u[i] += M.phi[i] * qk; }); return u; };
+      let best = 0, bs = 0;
+      for (let s_ = 0; s_ < steps; s_ += 3) { const p_ = peaks(md, at(s_)); if (p_.d > best) { best = p_.d; bs = s_; } }
+      md.th = { at, steps, ref: peaks(md, at(bs)), dmax: best, tmax: bs * DT };
+      return md.th;
+    }
+
+    // 移動荷重：載荷点を順に動く P の、部材端の応力の包絡（最大・最小）
+    function envelope(md, dia) {
+      md.env ||= {};
+      if (md.env[dia]) return md.env[dia];
+      const key = dia === "M" ? ["Mi", "Mj"] : dia === "Q" ? ["Q", "Q"] : ["N", "N"];
+      const env = md.els.map(() => ({ lo: [Infinity, Infinity], hi: [-Infinity, -Infinity] }));
+      md.demoNodes.forEach((k) => {
+        const u = md.vCase.get(k);
+        md.els.forEach((e, i) => { const r = forces(md, u, e); key.forEach((kk_, j) => { env[i].lo[j] = Math.min(env[i].lo[j], r[kk_]); env[i].hi[j] = Math.max(env[i].hi[j], r[kk_]); }); });
+      });
+      md.env[dia] = env;
+      return env;
+    }
+
+    // 固有振動・座屈のモードは形だけを示す（振幅が任意なので応力図は描かない）
+    const shapeOnly = () => st.load === "m" || st.load === "k";
+
+    // 選んだ断面（部材の i 端）の影響線：単位荷重が各載荷点にあるときの値
+    function influence(md) {
+      if (st.sel === null || st.sel >= md.els.length) {
+        const env = envelope(md, st.dia); let best = 0;
+        env.forEach((x, i) => { const v = Math.max(Math.abs(x.hi[0]), Math.abs(x.lo[0])); if (v > (best ? Math.max(Math.abs(env[best].hi[0]), Math.abs(env[best].lo[0])) : -1)) best = i; });
+        st.sel = best;
+      }
+      const e = md.els[st.sel], key = st.dia === "M" ? "Mi" : st.dia;
+      const vals = md.demoNodes.map((k) => forces(md, md.vCase.get(k), e)[key] / P);
+      return { e, vals, max: Math.max(...vals.map(Math.abs)) };
+    }
+    const insetBox = () => {
+      const small = st.W < 520, w = small ? 150 : 210, h = small ? 52 : 68;
+      const x = st.W - w - 12, y = small ? 50 : 12;
+      ctx.fillStyle = st.col.paper; ctx.globalAlpha = 0.92; ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1;
+      ctx.strokeStyle = st.col.line; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+      return { x, y, w, h, small };
+    };
+    function drawInfluence() {
+      const { col, md } = st, inf = influence(md), { x, y, w, h, small } = insetBox();
+      // 選んだ部材に印
+      const A = md.nodes[inf.e.i], B = md.nodes[inf.e.j], pa = proj(A.x, A.y, A.z), pb = proj(B.x, B.y, B.z);
+      ctx.strokeStyle = col.acc; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(pa[0] + (pb[0] - pa[0]) * 0.15, pa[1] + (pb[1] - pa[1]) * 0.15, 7, 0, Math.PI * 2); ctx.stroke();
+      const n = inf.vals.length, m = inf.max || 1, X = (i) => x + 10 + (i / Math.max(1, n - 1)) * (w - 20), Y0 = y + h * 0.58, Y = (v) => Y0 - (v / m) * h * 0.3;
+      ctx.strokeStyle = col.ink3; ctx.beginPath(); ctx.moveTo(x + 8, Y0); ctx.lineTo(x + w - 8, Y0); ctx.stroke();
+      ctx.fillStyle = col.accSoft; ctx.strokeStyle = col.acc; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(X(0), Y0); inf.vals.forEach((v, i) => ctx.lineTo(X(i), Y(v))); ctx.lineTo(X(n - 1), Y0); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); inf.vals.forEach((v, i) => (i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)))); ctx.stroke();
+      const k = md.demoNodes.indexOf(st.target);
+      if (k >= 0) { ctx.fillStyle = col.acc; ctx.beginPath(); ctx.arc(X(k), Y(inf.vals[k]), 3.5, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = col.ink3; ctx.font = `500 ${small ? 8.5 : 9.5}px "IBM Plex Mono", "Noto Sans JP", monospace`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.fillText(`${st.dia} の影響線（部材 ${st.sel + 1}）`, x + 8, y + 12);
+    }
+    function drawWave() {
+      const { col } = st, { wave } = QUAKE, { x, y, w, h, small } = insetBox(), n = wave.length;
+      const X = (i) => x + 8 + (i / (n - 1)) * (w - 16), Y0 = y + h * 0.6, Y = (v) => Y0 - (v / 3.5) * h * 0.32;
+      ctx.lineWidth = 1;
+      [[col.line, n - 1], [col.ink, st.thStep]].forEach(([c, end]) => {
+        ctx.strokeStyle = c; ctx.beginPath();
+        for (let i = 0; i <= end; i += 3) (i ? ctx.lineTo(X(i), Y(wave[i])) : ctx.moveTo(X(i), Y(wave[i])));
+        ctx.stroke();
+      });
+      ctx.strokeStyle = col.acc; ctx.beginPath(); ctx.moveTo(X(st.thStep), y + 16); ctx.lineTo(X(st.thStep), y + h - 4); ctx.stroke();
+      ctx.fillStyle = col.ink3; ctx.font = `500 ${small ? 8.5 : 9.5}px "IBM Plex Mono", "Noto Sans JP", monospace`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.fillText(`地動加速度　${QUAKE.DUR} s`, x + 8, y + 12);
+    }
+
     // 小さな一般化固有値問題（コレスキー分解＋ヤコビ法）
     function geig(A, B) {
       const p = A.length, L = Array.from({ length: p }, () => new Float64Array(p));
@@ -526,11 +684,11 @@
     const st = {
       md: null, id: "tree", load: "v", dia: "M", target: 0, hover: false, t0: performance.now(),
       u: null, visible: true, W: 0, H: 0, dpr: 1, k: 1, ox: 0, oy: 0, col: {}, yaw: 0.6, yawT: performance.now(),
-      mode: 0, drag: null, brk: null, edit: null,
+      mode: 0, drag: null, brk: null, edit: null, sel: null, thStep: 0,
     };
     const useModel = (md) => {
       st.md = md; st.u = new Float64Array(md.n);
-      st.t0 = performance.now(); st.brk = null; st.drag = null; st.mode = 0;
+      st.t0 = performance.now(); st.brk = null; st.drag = null; st.mode = 0; st.sel = null;
       if (md.unstable) return;
       if (md.pre.yaw !== undefined) st.yaw = md.pre.yaw;
       st.target = md.demoNodes[Math.floor(md.demoNodes.length * 0.3)];
@@ -675,6 +833,16 @@
         return;
       }
       if (st.load === "m") { st.mode = (st.mode + 1) % modes(st.md).length; st.t0 = performance.now(); return; }
+      if (st.load === "i") {
+        let best = 0, bd = Infinity;
+        st.md.els.forEach((e, i) => {
+          const A = st.md.nodes[e.i], B = st.md.nodes[e.j], pa = proj(A.x, A.y, A.z), pb = proj(B.x, B.y, B.z);
+          const d = ((pa[0] + pb[0]) / 2 - px) ** 2 + ((pa[1] + pb[1]) / 2 - py) ** 2;
+          if (d < bd) { bd = d; best = i; }
+        });
+        st.sel = best; return;
+      }
+      if (st.load === "k" || st.load === "e") return;
       if (st.load === "b") { if (!st.brk || st.brk.phase === "done") startBreak(nearest(px, py, st.md.loadNodes)); return; }
       if (st.load !== "v") return;
       const k = nearest(px, py, freeNodes(st.md));
@@ -762,6 +930,9 @@
       const md = st.md;
       if (st.load === "m") return modes(md)[st.mode].ref;
       if (st.load === "b") return st.brk ? st.brk.ref : md.ref.v;
+      if (st.load === "k") { const b = buckling(md); return b ? b.ref : md.ref.v; }
+      if (st.load === "e") return history(md).ref;
+      if (st.load === "i") return md.ref.v;
       return md.ref[st.load];
     };
     const targetU = (t) => {
@@ -788,6 +959,20 @@
         return { u: M.u, s: reduceMotion ? 1 : Math.sin(((t - st.t0) / 1000) * (2 * Math.PI / per)) };
       }
       if (st.load === "b") return st.brk ? breakU(t) : { u: new Float64Array(md.n), s: 0 };
+      if (st.load === "k") {
+        const b = buckling(md);
+        return b ? { u: b.u, s: reduceMotion ? 1 : 0.65 + 0.35 * Math.sin(((t - st.t0) / 1000) * 2.4) } : { u: new Float64Array(md.n), s: 0 };
+      }
+      if (st.load === "e") {
+        const th = history(md);
+        st.thStep = reduceMotion ? Math.round(th.tmax / QUAKE.DT) : Math.floor((t - st.t0) / 1000 / QUAKE.DT) % th.steps;
+        return { u: th.at(st.thStep), s: 1 };
+      }
+      if (st.load === "i") {
+        const d = md.demoNodes, f = reduceMotion ? 0.5 : (((t - st.t0) / 9000) % 1);
+        st.target = d[Math.min(d.length - 1, Math.floor(f * d.length))];
+        return { u: md.vCase.get(st.target), s: 1 };
+      }
       if (st.load === "h") return { u: md.hCase, s: reduceMotion ? 1 : Math.sin((t - st.t0) / 1000 * Math.PI * 1.25) };
       if (!st.hover && !reduceMotion) {
         const ph = ((t - st.t0) / 7000) % 2, f = ph < 1 ? ph : 2 - ph;
@@ -815,6 +1000,14 @@
         main = st.edit.cur ? "離したところまで部材を引きます" : L >= PRESETS.draw.max ? `部材は ${PRESETS.draw.max} 本までです` : "線を描き足すと、その場で解き直します";
         sub = `部材 ${L} 本｜GL に接する点は固定端｜${st.load === "v" ? "カーソルの位置に P=100kN" : "水平力 Q=100kN"}`;
         hot = !!st.edit.cur;
+      } else if (st.load === "k") {
+        const b = buckling(st.md);
+        main = b ? `座屈荷重係数 λcr = ${fmt(b.lam, 2)}` : "この荷重では座屈しません";
+        sub = b ? `全載荷点の P=100kN を ${fmt(b.lam, 2)} 倍すると、この形で座屈` : "全載荷点に P=100kN"; hot = !!b;
+      } else if (st.load === "e") {
+        main = `地震応答　t = ${fmt(st.thStep * QUAKE.DT, 1)} s`; sub = "模擬地震波（最大 350 gal）を水平に入力・低次 4 モードの重ね合わせ";
+      } else if (st.load === "i") {
+        main = "移動荷重と影響線"; sub = "部材をクリックすると、その断面の影響線を表示（破線は包絡）";
       } else if (st.load === "v") { main = st.drag ? `F = ${fmt(Math.hypot(...st.drag.F), 0)} kN で引っぱっています` : "ドラッグすると、その点を引っぱれます"; sub = st.drag ? "指を離すと戻ります" : "カーソルを置くと、その位置に P=100kN"; hot = !!st.drag; }
       if (st.load === "h") { main = "地震力で左右に揺らしています"; sub = "Ai分布に近い水平力"; }
       if (st.load === "m") { const M = modes(st.md)[st.mode]; main = `${st.mode + 1}次モード　T = ${fmt(M.T, 3)} s`; sub = "クリックで次のモード →"; }
@@ -856,6 +1049,8 @@
       ctx.lineCap = "round"; ctx.lineJoin = "round";
       const res = md.space ? draw3(t, s) : draw2(t, s);
       message(t);
+      if (st.load === "i") drawInfluence();
+      if (st.load === "e") drawWave();
 
       // 数値表示（実際の値）
       const uNow = tu.map((v) => v * (st.load === "m" ? 1 : s));
@@ -866,6 +1061,19 @@
         const M = modes(md)[st.mode];
         lab = ["MODE", "固有周期 T", "振動数 f", "SCALE"];
         roTxt = [`${st.mode + 1}次モード`, `${fmt(M.T, 3)} s`, `${fmt(1 / M.T, 2)} Hz`, "形のみ（振幅は任意）"];
+      } else if (st.load === "k") {
+        const b = buckling(md);
+        lab = ["LOAD", "座屈荷重係数 λ<sub>cr</sub>", "座屈荷重", "SCALE"];
+        roTxt = [`P=${P}kN × ${md.loadNodes.length} 点`, b ? fmt(b.lam, 2) : "—", b ? `${fmt(b.lam * P, 0)} kN／点` : "座屈しない", "形のみ"];
+      } else if (st.load === "e") {
+        const th = history(md);
+        lab = ["INPUT", "t", "δ（いま）", "δ<sub>max</sub>（応答の最大）"];
+        roTxt = ["模擬波 350 gal（水平）", `${fmt(st.thStep * QUAKE.DT, 2)} s`, `${fmt(pk.d * 1000, 1)} mm`, `${fmt(th.dmax * 1000, 1)} mm`];
+      } else if (st.load === "i") {
+        const inf = influence(md), env = envelope(md, st.dia), u = st.dia === "M" ? "kN·m" : "kN";
+        const em = Math.max(...env.map((x) => Math.max(...x.hi.map(Math.abs), ...x.lo.map(Math.abs))));
+        lab = ["LOAD", `包絡 ${st.dia}<sub>max</sub>`, `選んだ断面の ${st.dia}<sub>max</sub>`, "SCALE"];
+        roTxt = [res.loadTxt, `${fmt(em)} ${u}`, `${fmt(inf.max * P)} ${u}`, `変形 ×${Math.round(res.amp)}`];
       } else if (st.load === "b") {
         const b = st.brk;
         lab = ["LOAD", "破断した部材", "δ<sub>max</sub>", "崩壊荷重 P<sub>u</sub>"];
@@ -921,7 +1129,12 @@
         ctx.beginPath(); ctx.arc(X, Y, 6, 0, Math.PI * 2); ctx.stroke();
         return `F=${fmt(m, 0)}kN @ ${where(md.nodes[st.drag.k])}`;
       }
-      if (st.load === "m") return "";
+      if (st.load === "m" || st.load === "e") return st.load === "e" ? "模擬地震波（水平）" : "";
+      if (st.load === "k") {
+        const ks = md.loadNodes, stp = Math.max(1, Math.floor(ks.length / 24));
+        ks.forEach((k, i) => { if (i % stp) return; const [X, Y] = at(k); arrow(X, Y - 20, X, Y - 3); });
+        return `P=${P}kN × ${ks.length} 点`;
+      }
       if (st.load === "b") {
         if (!st.brk) return "—";
         const [X, Y] = at(st.brk.k), len = 30 + Math.min(50, st.brk.P / (st.brk.rate * 0.12));
@@ -988,7 +1201,7 @@
 
       // 応力図（引張側に描く）。壊してみるでは描かない
       const refV = R[st.dia] || 1;
-      const elsDia = brk ? [] : els;
+      const elsDia = brk || shapeOnly() ? [] : els;
       const sc = (st.dia === "M" ? 0.13 : 0.08) * span / refV;
       let peak = { v: 0 };
       ctx.fillStyle = col.accSoft; ctx.strokeStyle = col.acc; ctx.lineWidth = 1.3;
@@ -1007,6 +1220,19 @@
           if (Math.abs(v) > Math.abs(peak.v)) { const g = Math.sign(sign * v) || 1; peak = { v, x: p.x, y: p.y, dx: nx * g, dy: ny * g }; }
         });
       });
+
+      if (st.load === "i") {
+        const env = envelope(md, st.dia), sign = st.dia === "M" ? -1 : 1;
+        ctx.setLineDash([4, 3]); ctx.strokeStyle = col.acc; ctx.lineWidth = 1;
+        els.forEach((e, i) => {
+          const A = nodes[e.i], B = nodes[e.j], nx = e.R[1][0], ny = e.R[1][1];
+          ["hi", "lo"].forEach((h) => {
+            const [vi, vj] = env[i][h];
+            ctx.beginPath(); ctx.moveTo(sx(A.x + sign * nx * vi * sc), sy(A.y + sign * ny * vi * sc)); ctx.lineTo(sx(B.x + sign * nx * vj * sc), sy(B.y + sign * ny * vj * sc)); ctx.stroke();
+          });
+        });
+        ctx.setLineDash([]);
+      }
 
       // 変形（倍率をかけて誇張表示）。壊してみるでは検定比で色を付け、破断した部材は落とす
       const amp = ampOf(md);
@@ -1039,7 +1265,7 @@
       let loadTxt = "";
       const spec = specialLoad((k) => { const nd = nodes[k], d = disp(k, amp); return [sx(nd.x + d[0]), sy(nd.y + d[1])]; });
       if (spec !== null) loadTxt = spec;
-      else if (st.load === "v") {
+      else if (st.load === "v" || st.load === "i") {
         const nd = nodes[st.target], d = disp(st.target, amp), X = sx(nd.x + d[0]), Y = sy(nd.y + d[1]) - 4;
         arrow(X, Y - 46, X, Y);
         ctx.textAlign = "center"; ctx.fillText(`P=${P}kN`, X, Y - 56);
@@ -1132,7 +1358,7 @@
         const A = nodes[e.i], B = nodes[e.j], da = disp(e.i, amp), db = disp(e.j, amp);
         const pa = proj(A.x + da[0], A.y + da[1], A.z + da[2]), pb = proj(B.x + db[0], B.y + db[1], B.z + db[2]);
         if (brk) return { e, pa, pb, v: Math.min(1, util(md, u, e)), d: (pa[2] + pb[2]) / 2, util: true };
-        const r = forces(md, u, e), v = st.dia === "M" ? r.Mmax : st.dia === "Q" ? Math.abs(r.Q) : r.N;
+        const r = forces(md, u, e), v = shapeOnly() ? 0 : st.dia === "M" ? r.Mmax : st.dia === "Q" ? Math.abs(r.Q) : r.N;
         return { e, pa, pb, v, d: (pa[2] + pb[2]) / 2 };
       }).sort((a, b) => b.d - a.d);
       const dmax = md.rad;
@@ -1158,7 +1384,7 @@
           if (md.pre.bar) ctx.globalAlpha = 0.35 + 0.65 * f;
           ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
         }
-        if (!isU && (!peak || Math.abs(v) > Math.abs(peak.v))) peak = { v, x: (pa[0] + pb[0]) / 2, y: (pa[1] + pb[1]) / 2 };
+        if (!isU && !shapeOnly() && (!peak || Math.abs(v) > Math.abs(peak.v))) peak = { v, x: (pa[0] + pb[0]) / 2, y: (pa[1] + pb[1]) / 2 };
       });
       ctx.globalAlpha = 1;
       if (brk) drawBroken(brk, proj, amp);
@@ -1188,7 +1414,7 @@
 
       // 凡例
       ctx.font = `500 ${small ? 9 : 10.5}px "IBM Plex Mono", monospace`; ctx.textAlign = "left";
-      const lg = brk ? [[col.acc, "検定比（太く赤いほど限界に近い）"]] : st.dia === "N" ? [[col.acc, "引張"], [col.blue, "圧縮"]] : [[col.acc, st.dia === "M" ? "曲げモーメントの大きさ" : "せん断力の大きさ"]];
+      const lg = shapeOnly() ? [[col.ink, "モードの形（振幅は任意）"]] : brk ? [[col.acc, "検定比（太く赤いほど限界に近い）"]] : st.dia === "N" ? [[col.acc, "引張"], [col.blue, "圧縮"]] : [[col.acc, st.dia === "M" ? "曲げモーメントの大きさ" : "せん断力の大きさ"]];
       lg.forEach(([c, l], i) => {
         const y = st.H - 16 - i * 16;
         ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(14, y); ctx.lineTo(34, y); ctx.stroke();
@@ -1203,7 +1429,7 @@
       let loadTxt = "";
       const spec = specialLoad((k) => { const nd = nodes[k], d = disp(k, amp); return proj(nd.x + d[0], nd.y + d[1], nd.z + d[2]); });
       if (spec !== null) loadTxt = spec;
-      else if (st.load === "v") {
+      else if (st.load === "v" || st.load === "i") {
         const nd = nodes[st.target], d = disp(st.target, amp), [X, Y] = proj(nd.x + d[0], nd.y + d[1], nd.z + d[2]);
         arrow(X, Y - 46, X, Y - 4);
         ctx.fillText(`P=${P}kN`, X, Y - 56);
@@ -1221,11 +1447,64 @@
       return { loadTxt, amp };
     }
 
+    /* ── 書き出しと共有 ── */
+    // DXF（R12）：元の形・変形（表示倍率のまま）・支点。単位 mm、空間構造は Z を鉛直に
+    function exportDXF() {
+      const md = st.md; if (md.unstable) return;
+      const amp = ampOf(md), out = ["0", "SECTION", "2", "ENTITIES"];
+      const P3 = (nd, d) => { const x = (nd.x + d[0]) * 1000, y = (nd.y + d[1]) * 1000, z = (nd.z + d[2]) * 1000; return md.space ? [x, z, y] : [x, y, 0]; };
+      const line = (layer, a, b) => out.push("0", "LINE", "8", layer, "10", a[0].toFixed(1), "20", a[1].toFixed(1), "30", a[2].toFixed(1), "11", b[0].toFixed(1), "21", b[1].toFixed(1), "31", b[2].toFixed(1));
+      const z3 = [0, 0, 0];
+      md.els.forEach((e) => {
+        line("FRAME", P3(md.nodes[e.i], z3), P3(md.nodes[e.j], z3));
+        line("DEFORM", P3(md.nodes[e.i], disp(e.i, amp)), P3(md.nodes[e.j], disp(e.j, amp)));
+      });
+      md.nodes.forEach((nd) => { if (!nd.sup) return; const p = P3(nd, z3); out.push("0", "POINT", "8", "SUPPORT", "10", p[0].toFixed(1), "20", p[1].toFixed(1), "30", p[2].toFixed(1)); });
+      out.push("0", "ENDSEC", "0", "EOF");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([out.join("\n") + "\n"], { type: "application/dxf" }));
+      a.download = `tectonica-${st.id}.dxf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+    // 共有リンク：形式・パラメータ・荷重・応力図（描いた線も）を URL の # に入れる
+    const stateHash = () => {
+      const pre = PRESETS[st.id], q = new URLSearchParams({ m: st.id, l: st.load, d: st.dia });
+      if (pre.p) q.set("p", Object.entries(pre.p).map(([k, v]) => `${k}:${v}`).join(","));
+      if (st.id === "draw") q.set("L", pre.lines.map((ln) => ln.flat().join(".")).join(";"));
+      return "#" + q.toString();
+    };
+    function restore() {
+      let q; try { q = new URLSearchParams(location.hash.slice(1)); } catch (_) { q = new URLSearchParams(); }
+      const id = PRESETS[q.get("m")] ? q.get("m") : "tree", pre = PRESETS[id];
+      if (pre.params && q.get("p")) q.get("p").split(",").forEach((kv) => {
+        const [k, v] = kv.split(":"), def = pre.params.find((x) => x[0] === k);
+        if (def && Number.isFinite(+v)) pre.p[k] = Math.min(def[3], Math.max(def[2], +v));
+      });
+      if (id === "draw" && q.get("L") !== null) {
+        const L = q.get("L").split(";").map((t) => t.split(".").map(Number)).filter((a) => a.length === 4 && a.every(Number.isFinite));
+        const b = pre.box, ok = (x, y) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1;
+        pre.lines = L.filter(([a, c, d, e]) => ok(a, c) && ok(d, e)).slice(0, pre.max).map(([a, c, d, e]) => [[a, c], [d, e]]);
+      }
+      if (["M", "Q", "N"].includes(q.get("d"))) { st.dia = q.get("d"); document.querySelectorAll("[data-dia]").forEach((x) => x.classList.toggle("on", x.dataset.dia === st.dia)); }
+      setModel(id);
+      const l = q.get("l");
+      if (l && document.querySelector(`[data-load="${l}"]`)) setLoad(l);
+    }
+    document.querySelectorAll("[data-tool]").forEach((b) => b.addEventListener("click", async () => {
+      if (b.dataset.tool === "dxf") { exportDXF(); return; }
+      const h = stateHash(), url = location.href.split("#")[0] + h, label = b.textContent;
+      try { history.replaceState(null, "", h); } catch (_) { /* 書き換えられない環境では URL だけ作る */ }
+      let msg = "URLに反映";
+      try { await navigator.clipboard.writeText(url); msg = "コピーしました"; } catch (_) { /* クリップボードが使えないときはアドレス欄の URL を使う */ }
+      b.textContent = msg; setTimeout(() => { b.textContent = label; }, 1600);
+    }));
+
     const loop = (t) => { if (st.visible && st.md) draw(t); requestAnimationFrame(loop); };
     new ResizeObserver(resize).observe(canvas);
     new IntersectionObserver(([en]) => { st.visible = en.isIntersecting; }).observe(canvas);
     recolor();
-    setModel("tree");
+    restore();
     if (!reduceMotion) requestAnimationFrame(loop);
     document.fonts && document.fonts.ready.then(() => reduceMotion && draw(performance.now()));
     return { recolor };
@@ -1236,6 +1515,9 @@
   /* ───────────────────── 2. 作品 ───────────────────── */
   // 各作品：写真のあとに、その案件の実際のスケッチ・検討図を横に並べる
   const P = (src, cap) => ({ src: `img/${src}.jpg`, cap, kind: "photo" });
+  const SITE = window.TECTONICA_SITE || [];
+  // 現行サイトの写真（img/site/NN/1.jpg …）
+  const SP = (title) => { const w = SITE.find((x) => x.t === title); return w ? Array.from({ length: w.n }, (_, i) => P(`site/${w.d}/${i + 1}`)) : []; };
   const S = (src, tag = "SKETCH") => ({ src: `img/draw/${src}.jpg`, kind: "draw", tag });
   const WORKS = [
     { no: "0338", t: "花重リノベーション", by: "マル・アーキテクチャ／東京藝術大学", loc: "東京都台東区", aw: ["日本建築学会作品選奨 2025", "東京建築賞 最優秀賞", "AACA賞2024 優秀賞", "グッドデザイン賞2024"], credit: "Photo: Takuya Seki", cls: "wide", dim: "RENOVATION / WOOD",
@@ -1245,13 +1527,13 @@
     { no: "0312", t: "神奈川歯科大学 キャンパスセンター", by: "アトリエMEME", loc: "神奈川県横須賀市", aw: ["The Architecture MasterPrize 2024", "神奈川建築コンクール2025 優秀賞", "Tecture Award 2024"], cls: "narrow", dim: "YOKOSUKA",
       slides: [P("kdu-1"), P("kdu-2")] },
     { no: "0408", t: "東京藝術大学 芸術未来研究場 本部", by: "MARU。architecture", loc: "東京都台東区", pub: "新建築 2025年4月号／GA JAPAN 189・191", credit: "Photo: Takuya Seki", cls: "wide", dim: "UENO",
-      slides: [P("geidai-1"), P("geidai-2"), S("geidai-sketch"), S("geidai-mullion", "STUDY")] },
+      slides: [...SP("東京藝術大学芸術未来研究場"), S("geidai-sketch"), S("geidai-mullion", "STUDY")] },
     { no: "0412", t: "ハニヤスの家 — HANIYASU HOUSE", by: "AATISMO", loc: "神奈川県", aw: ["FRAME 2026 monthly award"], pub: "GA HOUSES 204／住宅特集 2026年2月号", cls: "wide", dim: "2025",
-      slides: [P("haniyasu-1"), P("haniyasu-2"), S("haniyasu-sketch"), S("haniyasu-memo", "MEMO")] },
+      slides: [...SP("ハニヤスの家"), P("haniyasu-1"), P("haniyasu-2"), S("haniyasu-sketch"), S("haniyasu-memo", "MEMO")] },
     { no: "0337", t: "古川製作所 新社屋＋工場", by: "スキーマ建築計画", pub: "新建築 2025年1月号／GA JAPAN 190", cls: "narrow", dim: "OFFICE + FACTORY",
       slides: [P("furukawa-1"), P("furukawa-2"), S("furukawa-frame", "DRAWING")] },
     { no: "0500", t: "HOAM", by: "山田紗子建築設計事務所", loc: "2026", cls: "full", dim: "PAVILION",
-      slides: [P("process/09-0829-dusk"), P("process/08-0829"), S("hoam-sketch"), S("hoam-model", "MODEL"), S("hoam-study", "STUDY")] },
+      slides: [...SP("HOAM"), S("hoam-sketch"), S("hoam-model", "MODEL"), S("hoam-study", "STUDY")] },
   ];
   const MINI = [
     { t: "daita2019", by: "山田紗子建築設計事務所", em: "第36回 吉岡賞・住宅建築賞2020" },
@@ -1284,6 +1566,55 @@
     </article>`;
   }).join("") +
     `<div class="mini rv">${MINI.map((m) => `<div><b>${esc(m.t)}</b><span>${esc(m.by)}</span><em>${esc(m.em)}</em></div>`).join("")}</div>`;
+
+  /* 現行サイトの作品一覧（年ごと）。カードを開くと全写真をライトボックスで見られる */
+  const years = [...new Set(SITE.map((w) => w.y))];
+  $("#archive").innerHTML = years.map((y) => `
+    <div class="arc-year"><h3>${y}</h3><div class="arc-grid">${SITE.map((w, i) => [w, i]).filter(([w]) => w.y === y).map(([w, i]) => `
+      <button type="button" class="arc-card" data-site="${i}">
+        <span class="arc-img"><img src="img/site/${w.d}/t1.jpg" alt="${esc(w.t)}" loading="lazy"><i>${w.n}</i></span>
+        <b>${esc(w.t)}</b><span>${esc(w.by)}${w.loc ? `　／　${esc(w.loc)}` : ""}</span>
+      </button>`).join("")}</div></div>`).join("");
+
+  // ライトボックス
+  const lb = $("#lb"), lbImg = $("#lb img"), lbCap = $("#lb .lb-c"), lbCnt = $("#lb .lb-n");
+  let lbList = [], lbI = 0, lbBack = null;
+  const lbShow = (i) => {
+    lbI = (i + lbList.length) % lbList.length;
+    const it = lbList[lbI];
+    lbImg.src = it.src; lbImg.alt = it.cap;
+    lbCap.textContent = it.cap; lbCnt.textContent = `${lbI + 1} / ${lbList.length}`;
+    const nx = lbList[(lbI + 1) % lbList.length]; if (nx) new Image().src = nx.src;
+  };
+  const lbOpen = (list, i, from) => {
+    lbList = list; lbBack = from; lb.hidden = false; document.body.classList.add("lb-on");
+    lbShow(i); $("#lb .lb-x").focus();
+  };
+  const lbClose = () => { lb.hidden = true; document.body.classList.remove("lb-on"); lbBack && lbBack.focus(); };
+  $("#archive").addEventListener("click", (e) => {
+    const c = e.target.closest(".arc-card"); if (!c) return;
+    const w = SITE[+c.dataset.site], cap = `${w.t}　／　${w.by}`;
+    lbOpen(Array.from({ length: w.n }, (_, k) => ({ src: `img/site/${w.d}/${k + 1}.jpg`, cap })), 0, c);
+  });
+  $("#works-grid").addEventListener("click", (e) => {
+    const im = e.target.closest(".strip img"); if (!im) return;
+    const fig = im.closest(".slide"), strip = fig.parentElement, imgs = [...strip.querySelectorAll("img")];
+    const title = im.closest(".work").querySelector("h3").textContent;
+    lbOpen(imgs.map((x) => ({ src: x.getAttribute("src"), cap: title })), imgs.indexOf(im), im);
+  });
+  $("#lb .lb-x").addEventListener("click", lbClose);
+  $("#lb .lb-prev").addEventListener("click", () => lbShow(lbI - 1));
+  $("#lb .lb-next").addEventListener("click", () => lbShow(lbI + 1));
+  lb.addEventListener("click", (e) => { if (e.target === lb) lbClose(); });
+  addEventListener("keydown", (e) => {
+    if (lb.hidden) return;
+    if (e.key === "Escape") lbClose();
+    if (e.key === "ArrowRight") lbShow(lbI + 1);
+    if (e.key === "ArrowLeft") lbShow(lbI - 1);
+  });
+  let lbX = null;
+  lb.addEventListener("pointerdown", (e) => { lbX = e.clientX; });
+  lb.addEventListener("pointerup", (e) => { if (lbX !== null && Math.abs(e.clientX - lbX) > 50) lbShow(lbI + (e.clientX < lbX ? 1 : -1)); lbX = null; });
 
 
   document.querySelectorAll(".strip-wrap").forEach((wrap) => {
@@ -1491,27 +1822,9 @@
     const names = secs.map((el) => NAMES[el.id] || (el.classList.contains("ticks") ? "数字" : "トップ"));
     const H = 4;            // 階高 m
     $("#q-title").textContent = `このページは ${secs.length} 層の建物です`;
-    const DT = 0.01, DUR = 26;
+    const { DT, DUR, wave } = QUAKE;
     const st = { on: false, iso: false, res: null, t0: 0, raf: 0, scale: 1 };
 
-    // 乱数（毎回同じ波になるよう種を固定）
-    const rng = (seed) => () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-    // 模擬地震波：白色雑音を地盤（金井・田治見型）と長周期カットのフィルタに通し、包絡線をかける。最大 350 gal
-    const wave = (() => {
-      const r = rng(1995), n = Math.round(DUR / DT), a = new Float64Array(n);
-      const wg = 9, zg = 0.5, wf = 1.2, zf = 0.6;
-      let x = 0, v = 0, y = 0, w = 0;
-      for (let i = 0; i < n; i++) {
-        const t = i * DT, g = Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.PI * r());
-        const acc = -g * 30 - 2 * zg * wg * v - wg * wg * x; v += acc * DT; x += v * DT;
-        const ag = -(2 * zg * wg * v + wg * wg * x);
-        const acc2 = ag - 2 * zf * wf * w - wf * wf * y; w += acc2 * DT; y += w * DT;
-        const env = t < 2 ? (t / 2) ** 2 : t < 10 ? 1 : Math.exp(-0.25 * (t - 10));
-        a[i] = acc2 * env;   // 高域通過後の加速度
-      }
-      let mx = 0; a.forEach((v_) => { mx = Math.max(mx, Math.abs(v_)); });
-      return a.map((v_) => (v_ / mx) * 3.5);
-    })();
 
     // 対称な固有値問題（ヤコビ法）
     const jacobi = (A) => {
